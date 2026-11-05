@@ -39,7 +39,7 @@
   footer { padding: 10px 12px; background: #1b1b1b; border-top: 1px solid #333;
            display: flex; gap: 8px; }
   #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
-           padding: 9px; font-size: 14px; resize: none; }
+           padding: 9px; font-size: 14px; resize: none; max-height: 40dvh; overflow-y: auto; }
 </style>
 </head>
 <body>
@@ -552,6 +552,8 @@ async function send() {
   const text = $("input").value.trim();
   if (!text) return;
   $("input").value = "";
+  localStorage.removeItem("oc-draft");
+  autoResize();
   $("send").disabled = true;
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
@@ -595,6 +597,22 @@ $("abort").onclick = abortReply;
 $("input").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
+// 入力欄の改善: テキストエリアは内容に合わせて高さを伸ばし
+// （画面の4割まで）、未送信の下書きは localStorage に保存して
+// ページ再表示時に復元する。送信時に下書きは消え、高さも戻る。
+const DRAFT_KEY = "oc-draft";
+function autoResize() {
+  const inputEl = $("input");
+  inputEl.style.height = "auto";
+  const max = Math.round(window.innerHeight * 0.4);
+  inputEl.style.height = Math.min(inputEl.scrollHeight, max) + "px";
+}
+$("input").addEventListener("input", () => {
+  autoResize();
+  localStorage.setItem(DRAFT_KEY, $("input").value);
+});
+const savedDraft = localStorage.getItem(DRAFT_KEY);
+if (savedDraft) { $("input").value = savedDraft; autoResize(); }
 $("newSession").onclick = async () => {
   try {
     currentId = "";
