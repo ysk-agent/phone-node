@@ -30,6 +30,7 @@
   .user { align-self: flex-end; background: #2d5a8f; }
   .assistant { align-self: flex-start; background: #242424; border: 1px solid #383838; }
   .sys { align-self: center; color: #999; font-size: 12px; }
+  .usage { align-self: flex-start; color: #888; font-size: 12px; padding: 0 2px; }
   footer { padding: 10px 12px; background: #1b1b1b; border-top: 1px solid #333;
            display: flex; gap: 8px; }
   #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
@@ -70,6 +71,8 @@
 //   GET   /event                   -> server-sent events (streaming replies)
 //   POST  /session/{id}/abort      -> stop a running reply
 //   GET   /session/{id}/message    -> read a session's history
+//   (an assistant message's info carries tokens {input, output,
+//   reasoning, cache {read, write}} and cost in USD)
 // Sessions and titles live on the server, so history is shared by
 // every browser that opens this page. Nothing else about opencode
 // (version, storage, internals) is assumed.
@@ -177,6 +180,38 @@ function fmtTime(ms) {
     String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
 }
 
+// Show the token counts and cost of an assistant message, when the
+// server reports them. Only the fields that are present are shown,
+// so a free model without pricing still shows its token counts and
+// a message without usage info shows nothing at all.
+function fmtCost(c) {
+  const s = c >= 0.01 ? c.toFixed(4) : c.toFixed(6);
+  return "$" + s.replace(/0+$/, "").replace(/\.$/, "");
+}
+function addUsage(info) {
+  if (!info) return;
+  const t = info.tokens, parts = [];
+  if (t) {
+    if (typeof t.input === "number") parts.push("入力 " + t.input.toLocaleString("en-US"));
+    if (typeof t.output === "number") parts.push("出力 " + t.output.toLocaleString("en-US"));
+    if (typeof t.reasoning === "number" && t.reasoning > 0)
+      parts.push("推論 " + t.reasoning.toLocaleString("en-US"));
+    if (t.cache) {
+      if (typeof t.cache.read === "number" && t.cache.read > 0)
+        parts.push("キャッシュ読込 " + t.cache.read.toLocaleString("en-US"));
+      if (typeof t.cache.write === "number" && t.cache.write > 0)
+        parts.push("キャッシュ書込 " + t.cache.write.toLocaleString("en-US"));
+    }
+  }
+  if (typeof info.cost === "number" && info.cost > 0) parts.push("コスト " + fmtCost(info.cost));
+  if (!parts.length) return;
+  const div = document.createElement("div");
+  div.className = "usage";
+  div.textContent = "使用量: " + parts.join(" · ");
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
 // Rebuild the model dropdown from the server's providers, grouped
 // by provider. /config/providers lists only the connected providers,
 // so the list stays usable; /provider filtered by its `connected`
@@ -267,6 +302,10 @@ async function loadMessages(id) {
     const text = (m.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
     if (text) addMsg(m.info && m.info.role === "user" ? "user" : "assistant", text);
   }
+  // The latest reply's usage, so reopening a session still shows it.
+  const lastAssistant = [...messages].reverse()
+    .find(m => m.info && m.info.role === "assistant");
+  addUsage(lastAssistant && lastAssistant.info);
 }
 
 async function selectSession(id, load) {
@@ -311,6 +350,7 @@ async function syncReply(id, text, wait) {
   wait.remove();
   const out = (reply.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
   if (out) addMsg("assistant", out);
+  addUsage(reply.info);
   if (aborted) addMsg("sys", "中断しました");
   else if (!out) addMsg("assistant", "(テキスト応答なし)");
 }
@@ -351,6 +391,7 @@ async function streamReply(id, text, wait) {
       if (!streamBubble) streamBubble = addMsg("assistant", "");
       streamBubble.textContent = out;
     }
+    addUsage(last && last.info);
   } catch (e) { /* keep whatever streamed in; the list refresh follows */ }
   if (streamWait) { streamWait.remove(); streamWait = null; }
   if (aborted) addMsg("sys", "中断しました");
