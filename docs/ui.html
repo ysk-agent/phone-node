@@ -598,6 +598,7 @@ async function streamReply(id, text, wait) {
 async function send() {
   const text = $("input").value.trim();
   if (!text) return;
+  saveHistory(text);
   $("input").value = "";
   localStorage.removeItem("oc-draft");
   autoResize();
@@ -660,6 +661,53 @@ $("input").addEventListener("input", () => {
 });
 const savedDraft = localStorage.getItem(DRAFT_KEY);
 if (savedDraft) { $("input").value = savedDraft; autoResize(); }
+// 送信履歴: ↑↓キーで過去のプロンプトを呼び出す。送信したプロンプトは
+// localStorage に最大30件まで保存する。入力欄が空のとき（または
+// カーソルが先頭にあるとき）に ↑ を押すと最新の送信文が入り、↑↓で
+// 履歴をたどる。たどる前の入力文は退避してあり、↓で最新まで戻ると
+// 元の文に戻る。入力し直すと履歴たどりは解除される。
+const HISTORY_KEY = "oc-history";
+const HISTORY_MAX = 30;
+let history = [];
+try { history = JSON.parse(localStorage.getItem(HISTORY_KEY) || "[]"); } catch (e) { history = []; }
+if (!Array.isArray(history)) history = [];
+let historyIndex = -1; // -1 = 履歴たどり中ではない
+let historyDraft = "";
+function saveHistory(text) {
+  if (!text) return;
+  if (history[history.length - 1] === text) return;
+  history.push(text);
+  if (history.length > HISTORY_MAX) history = history.slice(-HISTORY_MAX);
+  try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
+  historyIndex = -1;
+}
+function showHistory(i) {
+  historyIndex = i;
+  $("input").value = history[history.length - 1 - i] || "";
+  autoResize();
+  $("input").setSelectionRange($("input").value.length, $("input").value.length);
+}
+$("input").addEventListener("keydown", e => {
+  if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+  if (!history.length) return;
+  const inputEl = $("input");
+  if (historyIndex === -1) {
+    // たどり始め: 入力欄が空か、カーソルが先頭のときだけ。
+    if (e.key === "ArrowDown") return;
+    if (inputEl.value && inputEl.selectionStart !== 0) return;
+    e.preventDefault();
+    historyDraft = inputEl.value;
+    showHistory(0);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (historyIndex < history.length - 1) showHistory(historyIndex + 1);
+  } else {
+    e.preventDefault();
+    if (historyIndex > 0) showHistory(historyIndex - 1);
+    else { historyIndex = -1; inputEl.value = historyDraft; autoResize(); }
+  }
+});
+$("input").addEventListener("input", () => { historyIndex = -1; });
 $("newSession").onclick = async () => {
   try {
     currentId = "";
