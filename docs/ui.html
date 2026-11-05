@@ -16,6 +16,7 @@
   #sessionList { flex: 1; min-width: 220px; }
   button { background: #2d5a8f; color: #fff; border: 0; border-radius: 6px;
            padding: 6px 12px; font-size: 13px; cursor: pointer; }
+  #abort { background: #8f2d2d; }
   button:disabled { opacity: .5; }
   #status { color: #9c9; margin-left: auto; }
   #status.err { color: #f88; }
@@ -52,6 +53,7 @@
 <footer>
   <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）"></textarea>
   <button id="send">送信</button>
+  <button id="abort" disabled>中断</button>
 </footer>
 <script>
 "use strict";
@@ -60,6 +62,7 @@
 //   POST  /session                 -> create a session
 //   PATCH /session/{id}            -> rename a session
 //   POST  /session/{id}/message    -> send a prompt, wait for the reply
+//   POST  /session/{id}/abort      -> stop a running reply
 //   GET   /session/{id}/message    -> read a session's history
 // Sessions and titles live on the server, so history is shared by
 // every browser that opens this page. Nothing else about opencode
@@ -69,6 +72,24 @@ const chat = $("chat"), statusEl = $("status"), listEl = $("sessionList");
 $("server").value = localStorage.getItem("oc-server") || $("server").value;
 $("model").value = localStorage.getItem("oc-model") || $("model").value;
 let currentId = "";
+// The session whose reply is currently being awaited, if any, and
+// whether the user asked to stop it. The abort button posts to the
+// server; it does not merely cancel the local fetch, so generation
+// itself stops on the server side.
+let pendingId = "";
+let aborted = false;
+
+async function abortReply() {
+  if (!pendingId) return;
+  $("abort").disabled = true;
+  aborted = true;
+  try {
+    await api("/session/" + encodeURIComponent(pendingId) + "/abort", { method: "POST" });
+  } catch (e) {
+    // The in-flight message request will still settle below and
+    // report the outcome; a failed abort needs no extra message.
+  }
+}
 
 function base() { return $("server").value.replace(/\/+$/, ""); }
 function setStatus(text, isErr) {
@@ -155,10 +176,13 @@ async function send() {
   if (!text) return;
   $("input").value = "";
   $("send").disabled = true;
+  $("abort").disabled = false;
+  aborted = false;
   addMsg("user", text);
   const wait = addMsg("sys", "応答待ち…");
   try {
     const id = await ensureSession();
+    pendingId = id;
     const [providerID, ...rest] = $("model").value.split("/");
     const reply = await api("/session/" + encodeURIComponent(id) + "/message", {
       method: "POST",
@@ -170,21 +194,31 @@ async function send() {
     });
     wait.remove();
     const out = (reply.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
-    addMsg("assistant", out || "(テキスト応答なし)");
+    if (out) addMsg("assistant", out);
+    if (aborted) addMsg("sys", "中断しました");
+    else if (!out) addMsg("assistant", "(テキスト応答なし)");
     // The server assigns/updates the title after an exchange; pull
     // the fresh list so the title bar and dropdown stay current.
     await refreshList(id);
     setStatus("接続済み");
   } catch (e) {
     wait.remove();
-    addMsg("sys", "エラー: " + e.message);
-    setStatus("エラー", true);
+    if (aborted) {
+      addMsg("sys", "中断しました");
+      setStatus("接続済み");
+    } else {
+      addMsg("sys", "エラー: " + e.message);
+      setStatus("エラー", true);
+    }
   } finally {
+    pendingId = "";
     $("send").disabled = false;
+    $("abort").disabled = true;
   }
 }
 
 $("send").onclick = send;
+$("abort").onclick = abortReply;
 $("input").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
