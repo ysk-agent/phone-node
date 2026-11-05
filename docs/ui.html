@@ -39,7 +39,7 @@
 <body>
 <header>
   <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
-  <label>モデル <input id="model" value="opencode/deepseek-v4.1-flash-free"></label>
+  <label>モデル <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select></label>
   <span id="status">未接続</span>
 </header>
 <header>
@@ -61,6 +61,8 @@
 //   GET   /session                 -> list sessions (id, title, time)
 //   POST  /session                 -> create a session
 //   PATCH /session/{id}            -> rename a session
+//   GET   /config/providers    -> providers with their models (+ defaults)
+//   GET   /provider           -> all providers + connected ids (fallback)
 //   POST  /session/{id}/message    -> send a prompt, wait for the reply
 //   POST  /session/{id}/prompt_async -> send a prompt, reply arrives via events (204)
 //   GET   /event                   -> server-sent events (streaming replies)
@@ -72,7 +74,17 @@
 const $ = id => document.getElementById(id);
 const chat = $("chat"), statusEl = $("status"), listEl = $("sessionList");
 $("server").value = localStorage.getItem("oc-server") || $("server").value;
-$("model").value = localStorage.getItem("oc-model") || $("model").value;
+// The saved model may not be among the initial options, so add it
+// as an option first; refreshModels() rebuilds the list from the
+// server and keeps the saved value selected when it is available.
+const savedModel = localStorage.getItem("oc-model");
+if (savedModel && ![...$("model").options].some(o => o.value === savedModel)) {
+  const o = document.createElement("option");
+  o.value = savedModel;
+  o.textContent = savedModel;
+  $("model").appendChild(o);
+}
+$("model").value = savedModel || $("model").value;
 let currentId = "";
 // The session whose reply is currently being awaited, if any, and
 // whether the user asked to stop it. The abort button posts to the
@@ -161,6 +173,65 @@ function fmtTime(ms) {
   const d = new Date(ms);
   return (d.getMonth() + 1) + "/" + d.getDate() + " " +
     String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+// Rebuild the model dropdown from the server's providers, grouped
+// by provider. /config/providers lists only the connected providers,
+// so the list stays usable; /provider filtered by its `connected`
+// ids is the fallback. The saved model is kept as an option when
+// the server no longer lists it, and sending still works when the
+// fetch fails, because the current option is left in place.
+async function refreshModels() {
+  const modelEl = $("model");
+  const saved = localStorage.getItem("oc-model") || modelEl.value;
+  let providers = null;
+  try {
+    const data = await api("/config/providers");
+    providers = data.providers;
+  } catch (e) { /* fall through to /provider */ }
+  if (!providers || !providers.length) {
+    try {
+      const data = await api("/provider");
+      const connected = new Set(data.connected || []);
+      providers = (data.all || []).filter(p => connected.has(p.id));
+    } catch (e) { providers = null; }
+  }
+  if (!providers || !providers.length) {
+    if (saved && ![...modelEl.options].some(o => o.value === saved)) {
+      const o = document.createElement("option");
+      o.value = saved;
+      o.textContent = saved;
+      modelEl.appendChild(o);
+    }
+    if (saved) modelEl.value = saved;
+    return;
+  }
+  modelEl.innerHTML = "";
+  let found = false;
+  for (const p of providers) {
+    const models = Object.values(p.models || {})
+      .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
+    if (!models.length) continue;
+    const group = document.createElement("optgroup");
+    group.label = p.name || p.id;
+    for (const m of models) {
+      const o = document.createElement("option");
+      o.value = p.id + "/" + m.id;
+      o.textContent = m.name || m.id;
+      if (o.value === saved) found = true;
+      group.appendChild(o);
+    }
+    modelEl.appendChild(group);
+  }
+  if (!found && saved) {
+    const o = document.createElement("option");
+    o.value = saved;
+    o.textContent = saved + "（取得外）";
+    modelEl.insertBefore(o, modelEl.firstChild);
+  }
+  modelEl.value = saved;
+  if (!modelEl.value && modelEl.options.length) modelEl.selectedIndex = 0;
+  localStorage.setItem("oc-model", modelEl.value);
 }
 
 async function refreshList(selectId) {
@@ -361,13 +432,16 @@ $("rename").onclick = async () => {
 $("server").onchange = () => {
   localStorage.setItem("oc-server", $("server").value);
   connectEvents();
+  refreshModels();
 };
 $("model").onchange = () => localStorage.setItem("oc-model", $("model").value);
 
-// On open: connect the event stream, fetch the session list and, if
-// the last-used session is still there, reopen it with its history.
+// On open: connect the event stream, fetch the model list and the
+// session list and, if the last-used session is still there, reopen
+// it with its history.
 (async () => {
   connectEvents();
+  try { await refreshModels(); } catch (e) { /* keep the saved model option */ }
   try {
     await refreshList();
     const last = localStorage.getItem("oc-last-session");
