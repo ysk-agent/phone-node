@@ -13,6 +13,7 @@
   header input, header select { background: #222; color: #eee; border: 1px solid #444;
            border-radius: 6px; padding: 5px 8px; font-size: 13px; }
   #server { width: 230px; } #model { width: 250px; }
+  #sessionSearch { width: 170px; }
   #sessionList { flex: 1; min-width: 220px; }
   button { background: #2d5a8f; color: #fff; border: 0; border-radius: 6px;
            padding: 6px 12px; font-size: 13px; cursor: pointer; }
@@ -48,6 +49,7 @@
 </header>
 <header>
   <select id="sessionList"><option value="">（セッション一覧）</option></select>
+  <label>検索 <input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"></label>
   <button id="newSession">新規</button>
   <button id="rename">名前変更</button>
   <button id="deleteSession">削除</button>
@@ -97,6 +99,9 @@ if (savedModel && ![...$("model").options].some(o => o.value === savedModel)) {
 }
 $("model").value = savedModel || $("model").value;
 let currentId = "";
+// All sessions fetched from the server, kept so the search box can
+// filter the dropdown without another fetch.
+let allSessions = [];
 // The session whose reply is currently being awaited, if any, and
 // whether the user asked to stop it. The abort button posts to the
 // server; it does not merely cancel the local fetch, so generation
@@ -355,27 +360,43 @@ async function refreshModels() {
   localStorage.setItem("oc-model", modelEl.value);
 }
 
-async function refreshList(selectId) {
-  const sessions = await api("/session");
-  sessions.sort((a, b) => (b.time?.updated || 0) - (a.time?.updated || 0));
+// Rebuild the session dropdown from allSessions, keeping only the
+// sessions whose title or id contains the search box text (matched
+// case-insensitively). The selected session is always shown, so
+// filtering never loses the current selection or a just-created
+// session passed as selectedId.
+function renderListOptions(selectedId) {
+  const want = selectedId ?? currentId;
+  const q = $("sessionSearch").value.trim().toLowerCase();
   listEl.innerHTML = "";
   const none = document.createElement("option");
   none.value = "";
   none.textContent = "（セッション一覧）";
   listEl.appendChild(none);
-  for (const s of sessions) {
+  for (const s of allSessions) {
+    if (q && s.id !== want &&
+        !(s.title || "").toLowerCase().includes(q) &&
+        !s.id.toLowerCase().includes(q)) continue;
     const o = document.createElement("option");
     o.value = s.id;
     o.textContent = (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
     listEl.appendChild(o);
   }
-  const want = selectId ?? currentId;
-  if (want && sessions.some(s => s.id === want)) {
+  if (want && [...listEl.options].some(o => o.value === want)) {
     listEl.value = want;
-    const cur = sessions.find(s => s.id === want);
-    $("curTitle").textContent = cur.title || "(無題)";
-    $("curId").textContent = cur.id;
+    const cur = allSessions.find(s => s.id === want);
+    if (cur) {
+      $("curTitle").textContent = cur.title || "(無題)";
+      $("curId").textContent = cur.id;
+    }
   }
+}
+
+async function refreshList(selectId) {
+  const sessions = await api("/session");
+  sessions.sort((a, b) => (b.time?.updated || 0) - (a.time?.updated || 0));
+  allSessions = sessions;
+  renderListOptions(selectId);
   setStatus("接続済み");
 }
 
@@ -545,6 +566,9 @@ listEl.onchange = async () => {
   try { await selectSession(id, true); setStatus("接続済み"); }
   catch (e) { setStatus("エラー: " + e.message, true); }
 };
+// Filter the session dropdown as the user types; no server fetch,
+// since allSessions already holds the fetched list.
+$("sessionSearch").addEventListener("input", () => renderListOptions());
 $("rename").onclick = async () => {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
   const title = prompt("新しいタイトル", $("curTitle").textContent);
