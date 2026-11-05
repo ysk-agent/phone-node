@@ -67,6 +67,8 @@
 "use strict";
 // This page depends only on the opencode server's public REST API:
 //   GET   /session                 -> list sessions (id, title, time)
+//   (the same GET /session doubles as the periodic reachability
+//   probe for the connection monitor; no extra endpoint is needed)
 //   POST  /session                 -> create a session
 //   PATCH /session/{id}            -> rename a session
 //   DELETE /session/{id}           -> delete a session (with confirmation)
@@ -182,6 +184,23 @@ function base() { return $("server").value.replace(/\/+$/, ""); }
 function setStatus(text, isErr) {
   statusEl.textContent = text;
   statusEl.className = isErr ? "err" : "";
+}
+// 接続状態の自動監視: 30秒ごとに GET /session でサーバ到達性を
+// 確認し、状態表示を切り替える。到達性が変わったときだけ表示を
+// 更新するので、「セッション作成中…」のような一時的な表示を
+// 上書きしない。checkConnection はサーバ欄の変更時にも即座に
+// 走る（次回まで最大30秒待たせないため）。
+let reachable = false;
+async function checkConnection() {
+  let ok = false;
+  try { ok = (await fetch(base() + "/session", { cache: "no-store" })).ok; }
+  catch (e) { ok = false; }
+  if (ok === reachable) return;
+  reachable = ok;
+  setStatus(ok ? "接続済み" : "未接続（サーバに到達できません）", !ok);
+}
+function startMonitor() {
+  setInterval(checkConnection, 30000);
 }
 function addMsg(cls, text) {
   const div = document.createElement("div");
@@ -397,6 +416,7 @@ async function refreshList(selectId) {
   sessions.sort((a, b) => (b.time?.updated || 0) - (a.time?.updated || 0));
   allSessions = sessions;
   renderListOptions(selectId);
+  reachable = true;
   setStatus("接続済み");
 }
 
@@ -649,13 +669,15 @@ $("server").onchange = () => {
   localStorage.setItem("oc-server", $("server").value);
   connectEvents();
   refreshModels();
+  checkConnection();
 };
 $("model").onchange = () => localStorage.setItem("oc-model", $("model").value);
 
-// On open: connect the event stream, fetch the model list and the
-// session list and, if the last-used session is still there, reopen
-// it with its history.
+// On open: start the connection monitor, connect the event
+// stream, fetch the model list and the session list and, if the
+// last-used session is still there, reopen it with its history.
 (async () => {
+  startMonitor();
   connectEvents();
   try { await refreshModels(); } catch (e) { /* keep the saved model option */ }
   try {
