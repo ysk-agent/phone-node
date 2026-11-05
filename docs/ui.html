@@ -31,6 +31,9 @@
   .assistant { align-self: flex-start; background: #242424; border: 1px solid #383838; }
   .sys { align-self: center; color: #999; font-size: 12px; }
   .usage { align-self: flex-start; color: #888; font-size: 12px; padding: 0 2px; }
+  .tool { align-self: flex-start; color: #aaa; font-size: 12px; padding: 1px 6px;
+          border-left: 2px solid #555; margin-left: 2px; }
+  .tool.err { color: #f88; border-color: #8f2d2d; }
   footer { padding: 10px 12px; background: #1b1b1b; border-top: 1px solid #333;
            display: flex; gap: 8px; }
   #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
@@ -73,7 +76,9 @@
 //   POST  /session/{id}/abort      -> stop a running reply
 //   GET   /session/{id}/message    -> read a session's history
 //   (an assistant message's info carries tokens {input, output,
-//   reasoning, cache {read, write}} and cost in USD)
+//   reasoning, cache {read, write}} and cost in USD; a message's
+//   parts are text and tool calls, the latter with a state
+//   {status: pending|running|completed|error, title?})
 // Sessions and titles live on the server, so history is shared by
 // every browser that opens this page. Nothing else about opencode
 // (version, storage, internals) is assumed.
@@ -111,6 +116,10 @@ let streamMsgId = "";
 let streamBubble = null;
 let streamWait = null;
 let waitIdle = null;
+// Tool (and other non-text) part rows of the reply currently being
+// awaited, keyed by part id, so a part.updated event refreshes the
+// same row instead of adding another one.
+let streamPartLines = {};
 
 function connectEvents() {
   if (events) { events.close(); events = null; }
@@ -138,6 +147,13 @@ function onEvent(ev) {
     if (!streamBubble) streamBubble = addMsg("assistant", "");
     streamParts[p.part.id] = p.part.text;
     streamBubble.textContent = Object.values(streamParts).join("");
+    chat.scrollTop = chat.scrollHeight;
+  } else if (ev.type === "message.part.updated" && p.part && p.part.type !== "text") {
+    if (!streamMsgId || p.part.messageID !== streamMsgId) return;
+    if (streamWait) { streamWait.remove(); streamWait = null; }
+    const el = streamPartLines[p.part.id];
+    if (el) { el.textContent = partLineText(p.part); el.className = partLineClass(p.part); }
+    else streamPartLines[p.part.id] = addPartLine(p.part);
     chat.scrollTop = chat.scrollHeight;
   } else if (ev.type === "session.idle" ||
       (ev.type === "session.status" && p.status && p.status.type === "idle")) {
@@ -169,6 +185,67 @@ function addMsg(cls, text) {
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
   return div;
+}
+// One modest row for a non-text part, so tool calls are never
+// silently dropped. A tool call shows its name, the server's title
+// when present, and its state; anything else gets one muted line
+// with its part type. The output of a tool call is not shown, since
+// it can be long and is not the reply itself.
+function toolStatusText(status) {
+  return { pending: "待機中", running: "実行中", completed: "完了", error: "エラー" }[status] || status || "";
+}
+function partLineText(p) {
+  if (p.type !== "tool") return "（" + p.type + "）";
+  const st = p.state || {};
+  let s = "ツール: " + (p.tool || "tool");
+  if (st.title) s += " — " + st.title;
+  const status = toolStatusText(st.status);
+  if (status) s += "（" + status + "）";
+  return s;
+}
+function partLineClass(p) {
+  return "tool" + ((p.state && p.state.status === "error") ? " err" : "");
+}
+function addPartLine(p) {
+  const div = document.createElement("div");
+  div.className = partLineClass(p);
+  div.textContent = partLineText(p);
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+// Render one stored message: text parts become a bubble (split by
+// tool calls, so a tool row sits between the text around it) and
+// each non-text part becomes one modest row. Returns true when
+// anything was shown.
+function renderMessage(m) {
+  const role = m.info && m.info.role === "user" ? "user" : "assistant";
+  let shown = false;
+  let text = "";
+  const flush = () => {
+    if (!text) return;
+    addMsg(role, text);
+    text = "";
+    shown = true;
+  };
+  for (const p of m.parts || []) {
+    if (p.type === "text") text += p.text;
+    else { flush(); addPartLine(p); shown = true; }
+  }
+  flush();
+  return shown;
+}
+// Make sure every non-text part of a stored message has a row, even
+// when its part.updated event was missed while streaming: an
+// existing row (keyed by part id) is refreshed, a missing one added.
+function syncPartLines(msg) {
+  if (!msg) return;
+  for (const p of msg.parts || []) {
+    if (p.type === "text") continue;
+    const el = streamPartLines[p.id];
+    if (el) { el.textContent = partLineText(p); el.className = partLineClass(p); }
+    else streamPartLines[p.id] = addPartLine(p);
+  }
 }
 async function api(path, options) {
   const res = await fetch(base() + path, options);
@@ -305,10 +382,7 @@ async function refreshList(selectId) {
 async function loadMessages(id) {
   const messages = await api("/session/" + encodeURIComponent(id) + "/message");
   chat.innerHTML = "";
-  for (const m of messages) {
-    const text = (m.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
-    if (text) addMsg(m.info && m.info.role === "user" ? "user" : "assistant", text);
-  }
+  for (const m of messages) renderMessage(m);
   // The latest reply's usage, so reopening a session still shows it.
   const lastAssistant = [...messages].reverse()
     .find(m => m.info && m.info.role === "assistant");
@@ -355,11 +429,10 @@ async function syncReply(id, text, wait) {
     body: JSON.stringify(promptBody(text)),
   });
   wait.remove();
-  const out = (reply.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
-  if (out) addMsg("assistant", out);
+  const shown = renderMessage(reply);
   addUsage(reply.info);
   if (aborted) addMsg("sys", "中断しました");
-  else if (!out) addMsg("assistant", "(テキスト応答なし)");
+  else if (!shown) addMsg("assistant", "(テキスト応答なし)");
 }
 
 // Streaming reply: POST prompt_async, then fill the assistant bubble
@@ -370,6 +443,7 @@ async function streamReply(id, text, wait) {
   streamMsgId = "";
   streamBubble = null;
   streamWait = wait;
+  streamPartLines = {};
   try {
     await api("/session/" + encodeURIComponent(id) + "/prompt_async", {
       method: "POST",
@@ -398,11 +472,13 @@ async function streamReply(id, text, wait) {
       if (!streamBubble) streamBubble = addMsg("assistant", "");
       streamBubble.textContent = out;
     }
+    syncPartLines(last);
     addUsage(last && last.info);
   } catch (e) { /* keep whatever streamed in; the list refresh follows */ }
   if (streamWait) { streamWait.remove(); streamWait = null; }
   if (aborted) addMsg("sys", "中断しました");
-  else if (!streamBubble || !streamBubble.textContent) addMsg("assistant", "(テキスト応答なし)");
+  else if ((!streamBubble || !streamBubble.textContent) && !Object.keys(streamPartLines).length)
+    addMsg("assistant", "(テキスト応答なし)");
 }
 
 async function send() {
@@ -439,6 +515,7 @@ async function send() {
     streamWait = null;
     streamParts = {};
     streamMsgId = "";
+    streamPartLines = {};
     waitIdle = null;
     $("send").disabled = false;
     $("abort").disabled = true;
