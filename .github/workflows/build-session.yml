@@ -1,0 +1,73 @@
+name: build-session
+
+# A single job that sets the environment up once, then accepts
+# checkouts pushed to the build/inbox branch for a bounded session
+# (see ci/session-loop.sh and docs/build-session.md). The session
+# never restarts itself; a new session is dispatched when needed.
+
+on:
+  workflow_dispatch:
+    inputs:
+      session_minutes:
+        description: "Minutes to accept checkouts after readiness"
+        type: number
+        default: 30
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-session
+  cancel-in-progress: false
+
+jobs:
+  session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install Android SDK platform 35
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Restore pinned asset inputs
+        uses: actions/cache@v4
+        with:
+          path: ci-dl
+          key: assets-${{ hashFiles('ci/assets.txt') }}
+
+      - name: Decode signing keystore
+        env:
+          SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
+        run: |
+          if [ -n "$SIGNING_KEYSTORE_B64" ]; then
+            echo "$SIGNING_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/signing.keystore"
+            echo "SIGNING_KEYSTORE=$RUNNER_TEMP/signing.keystore" >> "$GITHUB_ENV"
+          fi
+
+      - name: Fetch and stage assets into a template tree
+        run: |
+          ci/fetch-assets.sh "$GITHUB_WORKSPACE/ci-dl"
+          cp -r "$GITHUB_WORKSPACE/app" "$RUNNER_TEMP/template-app"
+          ci/stage-assets.sh "$GITHUB_WORKSPACE/ci-dl" "$RUNNER_TEMP/template-app"
+
+      - name: Run build session
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SESSION_TAG: session-${{ github.run_id }}
+          SESSION_MINUTES: ${{ inputs.session_minutes }}
+          TEMPLATE_APP: ${{ runner.temp }}/template-app
+          SIGNING_STORE_PASS: ${{ secrets.SIGNING_STORE_PASS }}
+          SIGNING_KEY_PASS: ${{ secrets.SIGNING_KEY_PASS }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+        run: ci/session-loop.sh

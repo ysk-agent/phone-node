@@ -1,0 +1,10 @@
+# Pinned binary inputs for ci/stage-assets.sh.
+# Format: <sha256> <filename> <url>
+# "oci:<repo>@<layer-digest>" fetches a single image layer blob from
+# registry-1.docker.io (used for the Debian rootfs, whose layer tarball
+# is byte-identical to the staged debian-rootfs asset).
+10a394b585c2fc2b2c8502544f4e5f1be581dc8bfff79e8ba62f16207423e030 proot_5.1.107.102_aarch64.deb https://packages.termux.dev/apt/termux-main/pool/main/p/proot/proot_5.1.107.102_aarch64.deb
+556591f43bb773ad8777e1a29522640866a55f95dab71914418b94a8c58ad5a7 libtalloc_2.5.0_aarch64.deb https://packages.termux.dev/apt/termux-main/pool/main/libt/libtalloc/libtalloc_2.5.0_aarch64.deb
+0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6 libandroid-shmem_0.7_aarch64.deb https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb
+2d66c782e4847b8495b17a4b86be1159aa13d140fe4fd17cb1d536953d5114c6 debian-bookworm-slim-arm64.tar.gz oci:library/debian@2d66c782e4847b8495b17a4b86be1159aa13d140fe4fd17cb1d536953d5114c6
+8568230ccd847dc93e95b9f6894379077d3e014a16b48040743573e77c23e85f opencode-linux-arm64.tar.gz https://github.com/anomalyco/opencode/releases/download/v1.19.4/opencode-linux-arm64.tar.gz
