@@ -16,7 +16,7 @@
   #sessionList { flex: 1; min-width: 220px; }
   button { background: #2d5a8f; color: #fff; border: 0; border-radius: 6px;
            padding: 6px 12px; font-size: 13px; cursor: pointer; }
-  #abort { background: #8f2d2d; }
+  #abort, #deleteSession { background: #8f2d2d; }
   button:disabled { opacity: .5; }
   #status { color: #9c9; margin-left: auto; }
   #status.err { color: #f88; }
@@ -46,6 +46,7 @@
   <select id="sessionList"><option value="">（セッション一覧）</option></select>
   <button id="newSession">新規</button>
   <button id="rename">名前変更</button>
+  <button id="deleteSession">削除</button>
   <button id="refreshList">一覧更新</button>
 </header>
 <div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span></div>
@@ -61,6 +62,7 @@
 //   GET   /session                 -> list sessions (id, title, time)
 //   POST  /session                 -> create a session
 //   PATCH /session/{id}            -> rename a session
+//   DELETE /session/{id}           -> delete a session (with confirmation)
 //   GET   /config/providers    -> providers with their models (+ defaults)
 //   GET   /provider           -> all providers + connected ids (fallback)
 //   POST  /session/{id}/message    -> send a prompt, wait for the reply
@@ -361,6 +363,7 @@ async function send() {
   $("input").value = "";
   $("send").disabled = true;
   $("abort").disabled = false;
+  $("deleteSession").disabled = true;
   aborted = false;
   addMsg("user", text);
   const wait = addMsg("sys", "応答待ち…");
@@ -391,6 +394,7 @@ async function send() {
     waitIdle = null;
     $("send").disabled = false;
     $("abort").disabled = true;
+    $("deleteSession").disabled = false;
   }
 }
 
@@ -427,6 +431,25 @@ $("rename").onclick = async () => {
       body: JSON.stringify({ title }),
     });
     await refreshList(currentId);
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+};
+// Delete the current session after a confirmation dialog. The
+// server removes the session and all its history, so the local
+// state (current id, saved last session, chat view, title bar) is
+// cleared too; otherwise the deleted id would be reopened.
+$("deleteSession").onclick = async () => {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  const title = $("curTitle").textContent;
+  if (!confirm("セッション「" + title + "」を削除しますか？\n会話の履歴もすべて消えます。")) return;
+  try {
+    await api("/session/" + encodeURIComponent(currentId), { method: "DELETE" });
+    currentId = "";
+    localStorage.removeItem("oc-last-session");
+    chat.innerHTML = "";
+    $("curTitle").textContent = "（セッション未選択）";
+    $("curId").textContent = "";
+    await refreshList();
+    addMsg("sys", "セッションを削除しました");
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
 $("server").onchange = () => {
