@@ -48,6 +48,7 @@
   <button id="newSession">新規</button>
   <button id="rename">名前変更</button>
   <button id="deleteSession">削除</button>
+  <button id="exportMd">書き出し</button>
   <button id="refreshList">一覧更新</button>
 </header>
 <div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span></div>
@@ -188,8 +189,10 @@ function fmtCost(c) {
   const s = c >= 0.01 ? c.toFixed(4) : c.toFixed(6);
   return "$" + s.replace(/0+$/, "").replace(/\.$/, "");
 }
-function addUsage(info) {
-  if (!info) return;
+// The token/cost parts of an assistant message's info, shared by
+// the on-screen usage line and the Markdown export.
+function usageParts(info) {
+  if (!info) return [];
   const t = info.tokens, parts = [];
   if (t) {
     if (typeof t.input === "number") parts.push("入力 " + t.input.toLocaleString("en-US"));
@@ -204,6 +207,10 @@ function addUsage(info) {
     }
   }
   if (typeof info.cost === "number" && info.cost > 0) parts.push("コスト " + fmtCost(info.cost));
+  return parts;
+}
+function addUsage(info) {
+  const parts = usageParts(info);
   if (!parts.length) return;
   const div = document.createElement("div");
   div.className = "usage";
@@ -493,6 +500,50 @@ $("deleteSession").onclick = async () => {
     addMsg("sys", "セッションを削除しました");
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
+// Export the current conversation as a Markdown file. The file is
+// built in the browser from the session's stored messages (the same
+// GET /session/{id}/message used to load history), so no server
+// change is needed; it downloads through a blob URL. Text parts are
+// written as-is, tool calls as one short line each so nothing is
+// silently dropped, and an assistant message's token/cost line is
+// added when the server reports it.
+function mdSafe(text) { return (text || "").replace(/[\\/:*?"<>|]/g, "_").trim(); }
+async function exportConversation() {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  try {
+    const messages = await api("/session/" + encodeURIComponent(currentId) + "/message");
+    const now = new Date();
+    const stamp = now.getFullYear() + String(now.getMonth() + 1).padStart(2, "0") +
+      String(now.getDate()).padStart(2, "0") + "-" +
+      String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0");
+    const title = $("curTitle").textContent;
+    const lines = ["# " + title, "", "- セッションID: " + currentId,
+      "- 書き出し日時: " + now.toLocaleString("ja-JP"), ""];
+    for (const m of messages) {
+      const role = m.info && m.info.role === "user" ? "ユーザー" : "アシスタント";
+      lines.push("## " + role, "");
+      for (const p of m.parts || []) {
+        if (p.type === "text") lines.push(p.text);
+        else if (p.type === "tool") lines.push("（ツール呼び出し: " + (p.tool || "tool") + "）");
+        else lines.push("（" + p.type + "）");
+      }
+      const parts = usageParts(m.info);
+      if (parts.length) lines.push("", "使用量: " + parts.join(" · "));
+      lines.push("");
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = stamp + "-" + (mdSafe(title) || "session") + ".md";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    addMsg("sys", "会話を Markdown として書き出しました");
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+}
+$("exportMd").onclick = exportConversation;
 $("server").onchange = () => {
   localStorage.setItem("oc-server", $("server").value);
   connectEvents();
