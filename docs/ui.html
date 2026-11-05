@@ -31,6 +31,7 @@
   .user { align-self: flex-end; background: #2d5a8f; }
   .assistant { align-self: flex-start; background: #242424; border: 1px solid #383838; }
   .sys { align-self: center; color: #999; font-size: 12px; }
+  .msgtime { font-size: 11px; color: #bbb; opacity: .75; margin-top: 4px; text-align: right; }
   .usage { align-self: flex-start; color: #888; font-size: 12px; padding: 0 2px; }
   .tool { align-self: flex-start; color: #aaa; font-size: 12px; padding: 1px 6px;
           border-left: 2px solid #555; margin-left: 2px; }
@@ -79,7 +80,8 @@
 //   GET   /event                   -> server-sent events (streaming replies)
 //   POST  /session/{id}/abort      -> stop a running reply
 //   GET   /session/{id}/message    -> read a session's history
-//   (an assistant message's info carries tokens {input, output,
+//   (a message's info carries time.created (ms since epoch); an
+//   assistant message's info also carries tokens {input, output,
 //   reasoning, cache {read, write}} and cost in USD; a message's
 //   parts are text and tool calls, the latter with a state
 //   {status: pending|running|completed|error, title?})
@@ -153,7 +155,7 @@ function onEvent(ev) {
     if (streamWait) { streamWait.remove(); streamWait = null; }
     if (!streamBubble) streamBubble = addMsg("assistant", "");
     streamParts[p.part.id] = p.part.text;
-    streamBubble.textContent = Object.values(streamParts).join("");
+    setMsgText(streamBubble, Object.values(streamParts).join(""));
     chat.scrollTop = chat.scrollHeight;
   } else if (ev.type === "message.part.updated" && p.part && p.part.type !== "text") {
     if (!streamMsgId || p.part.messageID !== streamMsgId) return;
@@ -202,13 +204,36 @@ async function checkConnection() {
 function startMonitor() {
   setInterval(checkConnection, 30000);
 }
-function addMsg(cls, text) {
+// A message bubble keeps its text in a child node, so the time
+// line below it survives streaming updates that rewrite the text.
+function addMsg(cls, text, ms) {
   const div = document.createElement("div");
   div.className = "msg " + cls;
-  div.textContent = text;
+  const body = document.createElement("div");
+  body.textContent = text;
+  div.appendChild(body);
+  div._body = body;
+  if (ms) setMsgTime(div, ms);
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
   return div;
+}
+function setMsgText(div, text) { div._body.textContent = text; }
+// The time a message was created, shown as a small muted line at
+// the bottom of its bubble. fmtTime (M/D HH:MM) is shared with the
+// session list; a message without a stored time shows none.
+function setMsgTime(div, ms) {
+  if (!ms) return;
+  let t = div.querySelector(".msgtime");
+  if (!t) {
+    t = document.createElement("div");
+    t.className = "msgtime";
+    div.appendChild(t);
+  }
+  t.textContent = fmtTime(ms);
+}
+function msgTime(m) {
+  return m && m.info && m.info.time ? m.info.time.created : 0;
 }
 // One modest row for a non-text part, so tool calls are never
 // silently dropped. A tool call shows its name, the server's title
@@ -248,7 +273,7 @@ function renderMessage(m) {
   let text = "";
   const flush = () => {
     if (!text) return;
-    addMsg(role, text);
+    addMsg(role, text, msgTime(m));
     text = "";
     shown = true;
   };
@@ -511,14 +536,15 @@ async function streamReply(id, text, wait) {
     const out = last ? (last.parts || []).filter(p => p.type === "text").map(p => p.text).join("") : "";
     if (out) {
       if (!streamBubble) streamBubble = addMsg("assistant", "");
-      streamBubble.textContent = out;
+      setMsgText(streamBubble, out);
+      setMsgTime(streamBubble, msgTime(last));
     }
     syncPartLines(last);
     addUsage(last && last.info);
   } catch (e) { /* keep whatever streamed in; the list refresh follows */ }
   if (streamWait) { streamWait.remove(); streamWait = null; }
   if (aborted) addMsg("sys", "中断しました");
-  else if ((!streamBubble || !streamBubble.textContent) && !Object.keys(streamPartLines).length)
+  else if ((!streamBubble || !streamBubble._body.textContent) && !Object.keys(streamPartLines).length)
     addMsg("assistant", "(テキスト応答なし)");
 }
 
@@ -530,7 +556,7 @@ async function send() {
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
   aborted = false;
-  addMsg("user", text);
+  addMsg("user", text, Date.now());
   const wait = addMsg("sys", "応答待ち…");
   try {
     const id = await ensureSession();
@@ -642,7 +668,8 @@ async function exportConversation() {
       "- 書き出し日時: " + now.toLocaleString("ja-JP"), ""];
     for (const m of messages) {
       const role = m.info && m.info.role === "user" ? "ユーザー" : "アシスタント";
-      lines.push("## " + role, "");
+      const t = msgTime(m);
+      lines.push("## " + role + (t ? "（" + fmtTime(t) + "）" : ""), "");
       for (const p of m.parts || []) {
         if (p.type === "text") lines.push(p.text);
         else if (p.type === "tool") lines.push("（ツール呼び出し: " + (p.tool || "tool") + "）");
