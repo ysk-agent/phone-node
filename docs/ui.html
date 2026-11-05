@@ -62,6 +62,8 @@
 //   POST  /session                 -> create a session
 //   PATCH /session/{id}            -> rename a session
 //   POST  /session/{id}/message    -> send a prompt, wait for the reply
+//   POST  /session/{id}/prompt_async -> send a prompt, reply arrives via events (204)
+//   GET   /event                   -> server-sent events (streaming replies)
 //   POST  /session/{id}/abort      -> stop a running reply
 //   GET   /session/{id}/message    -> read a session's history
 // Sessions and titles live on the server, so history is shared by
@@ -78,6 +80,52 @@ let currentId = "";
 // itself stops on the server side.
 let pendingId = "";
 let aborted = false;
+
+// Streaming state for the reply currently being awaited. The server
+// pushes the assistant's text as message.part.updated events (each
+// carrying the part's full current text) and marks the end with
+// session.status {type:"idle"} (or session.idle). streamWait is the
+// "応答待ち…" bubble, replaced by the assistant bubble on first text.
+let events = null;
+let eventsConnected = false;
+let streamParts = {};
+let streamMsgId = "";
+let streamBubble = null;
+let streamWait = null;
+let waitIdle = null;
+
+function connectEvents() {
+  if (events) { events.close(); events = null; }
+  eventsConnected = false;
+  let url;
+  try { url = base() + "/event"; } catch (e) { return; }
+  try { events = new EventSource(url); } catch (e) { events = null; return; }
+  events.onopen = () => { eventsConnected = true; };
+  events.onerror = () => { eventsConnected = false; };
+  events.onmessage = e => {
+    let ev;
+    try { ev = JSON.parse(e.data); } catch (_) { return; }
+    onEvent(ev);
+  };
+}
+
+function onEvent(ev) {
+  const p = ev.properties || {};
+  if (!pendingId || p.sessionID !== pendingId || currentId !== pendingId) return;
+  if (ev.type === "message.updated" && p.info && p.info.role === "assistant") {
+    streamMsgId = p.info.id;
+  } else if (ev.type === "message.part.updated" && p.part && p.part.type === "text") {
+    if (!streamMsgId || p.part.messageID !== streamMsgId) return;
+    if (streamWait) { streamWait.remove(); streamWait = null; }
+    if (!streamBubble) streamBubble = addMsg("assistant", "");
+    streamParts[p.part.id] = p.part.text;
+    streamBubble.textContent = Object.values(streamParts).join("");
+    chat.scrollTop = chat.scrollHeight;
+  } else if (ev.type === "session.idle" ||
+      (ev.type === "session.status" && p.status && p.status.type === "idle")) {
+    if (waitIdle) { const resolve = waitIdle; waitIdle = null; resolve(); }
+  }
+}
 
 async function abortReply() {
   if (!pendingId) return;
@@ -171,6 +219,71 @@ async function ensureSession() {
   return s.id;
 }
 
+function promptBody(text) {
+  const [providerID, ...rest] = $("model").value.split("/");
+  return {
+    model: { providerID, modelID: rest.join("/") },
+    parts: [{ type: "text", text }],
+  };
+}
+
+// Synchronous reply (the original behaviour): POST /message and wait
+// for the full reply. Used when the event stream is unavailable.
+async function syncReply(id, text, wait) {
+  const reply = await api("/session/" + encodeURIComponent(id) + "/message", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(promptBody(text)),
+  });
+  wait.remove();
+  const out = (reply.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
+  if (out) addMsg("assistant", out);
+  if (aborted) addMsg("sys", "中断しました");
+  else if (!out) addMsg("assistant", "(テキスト応答なし)");
+}
+
+// Streaming reply: POST prompt_async, then fill the assistant bubble
+// from message.part.updated events until the session goes idle.
+// Falls back to syncReply when the server has no prompt_async.
+async function streamReply(id, text, wait) {
+  streamParts = {};
+  streamMsgId = "";
+  streamBubble = null;
+  streamWait = wait;
+  try {
+    await api("/session/" + encodeURIComponent(id) + "/prompt_async", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(promptBody(text)),
+    });
+  } catch (e) {
+    if (/HTTP 40[45]/.test(e.message)) { streamWait = null; await syncReply(id, text, wait); return; }
+    throw e;
+  }
+  // Wait for the idle event; the watchdog ends the wait if the event
+  // is missed (the server keeps generating; reopening the session
+  // shows the full reply).
+  await new Promise(resolve => {
+    waitIdle = resolve;
+    setTimeout(() => { if (waitIdle) { waitIdle = null; resolve(); } }, 240000);
+  });
+  // Final sync: the stored message is the source of truth for what
+  // the bubble should hold, covering any missed part events.
+  try {
+    const messages = await api("/session/" + encodeURIComponent(id) + "/message");
+    const last = [...messages].reverse().find(m =>
+      m.info && m.info.role === "assistant" && (!streamMsgId || m.info.id === streamMsgId));
+    const out = last ? (last.parts || []).filter(p => p.type === "text").map(p => p.text).join("") : "";
+    if (out) {
+      if (!streamBubble) streamBubble = addMsg("assistant", "");
+      streamBubble.textContent = out;
+    }
+  } catch (e) { /* keep whatever streamed in; the list refresh follows */ }
+  if (streamWait) { streamWait.remove(); streamWait = null; }
+  if (aborted) addMsg("sys", "中断しました");
+  else if (!streamBubble || !streamBubble.textContent) addMsg("assistant", "(テキスト応答なし)");
+}
+
 async function send() {
   const text = $("input").value.trim();
   if (!text) return;
@@ -183,20 +296,8 @@ async function send() {
   try {
     const id = await ensureSession();
     pendingId = id;
-    const [providerID, ...rest] = $("model").value.split("/");
-    const reply = await api("/session/" + encodeURIComponent(id) + "/message", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: { providerID, modelID: rest.join("/") },
-        parts: [{ type: "text", text }],
-      }),
-    });
-    wait.remove();
-    const out = (reply.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
-    if (out) addMsg("assistant", out);
-    if (aborted) addMsg("sys", "中断しました");
-    else if (!out) addMsg("assistant", "(テキスト応答なし)");
+    if (eventsConnected) await streamReply(id, text, wait);
+    else await syncReply(id, text, wait);
     // The server assigns/updates the title after an exchange; pull
     // the fresh list so the title bar and dropdown stay current.
     await refreshList(id);
@@ -212,6 +313,11 @@ async function send() {
     }
   } finally {
     pendingId = "";
+    streamBubble = null;
+    streamWait = null;
+    streamParts = {};
+    streamMsgId = "";
+    waitIdle = null;
     $("send").disabled = false;
     $("abort").disabled = true;
   }
@@ -252,12 +358,16 @@ $("rename").onclick = async () => {
     await refreshList(currentId);
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
-$("server").onchange = () => localStorage.setItem("oc-server", $("server").value);
+$("server").onchange = () => {
+  localStorage.setItem("oc-server", $("server").value);
+  connectEvents();
+};
 $("model").onchange = () => localStorage.setItem("oc-model", $("model").value);
 
-// On open: fetch the session list and, if the last-used session is
-// still there, reopen it with its history.
+// On open: connect the event stream, fetch the session list and, if
+// the last-used session is still there, reopen it with its history.
 (async () => {
+  connectEvents();
   try {
     await refreshList();
     const last = localStorage.getItem("oc-last-session");
