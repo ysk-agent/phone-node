@@ -10,14 +10,19 @@
          display: flex; flex-direction: column; height: 100dvh; }
   header { padding: 8px 12px; background: #1b1b1b; border-bottom: 1px solid #333;
            display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
-  header input { background: #222; color: #eee; border: 1px solid #444; border-radius: 6px;
-                 padding: 5px 8px; font-size: 13px; }
-  #server { width: 230px; } #model { width: 250px; } #sessionId { width: 200px; }
+  header input, header select { background: #222; color: #eee; border: 1px solid #444;
+           border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+  #server { width: 230px; } #model { width: 250px; }
+  #sessionList { flex: 1; min-width: 220px; }
   button { background: #2d5a8f; color: #fff; border: 0; border-radius: 6px;
            padding: 6px 12px; font-size: 13px; cursor: pointer; }
   button:disabled { opacity: .5; }
   #status { color: #9c9; margin-left: auto; }
   #status.err { color: #f88; }
+  #titleBar { padding: 6px 12px; background: #161616; border-bottom: 1px solid #2a2a2a;
+              font-size: 13px; display: flex; gap: 10px; align-items: baseline; }
+  #curTitle { font-weight: 600; }
+  #curId { color: #888; font-size: 11px; word-break: break-all; }
   main { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap;
          word-break: break-word; line-height: 1.5; font-size: 14px; }
@@ -34,11 +39,15 @@
 <header>
   <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
   <label>モデル <input id="model" value="opencode/deepseek-v4.1-flash-free"></label>
-  <button id="newSession">新規セッション</button>
-  <label>セッション <input id="sessionId" placeholder="(未作成)"></label>
-  <button id="loadSession">履歴を読む</button>
   <span id="status">未接続</span>
 </header>
+<header>
+  <select id="sessionList"><option value="">（セッション一覧）</option></select>
+  <button id="newSession">新規</button>
+  <button id="rename">名前変更</button>
+  <button id="refreshList">一覧更新</button>
+</header>
+<div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span></div>
 <main id="chat"></main>
 <footer>
   <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）"></textarea>
@@ -47,14 +56,19 @@
 <script>
 "use strict";
 // This page depends only on the opencode server's public REST API:
-//   POST /session                 -> create a session
-//   POST /session/{id}/message    -> send a prompt, wait for the reply
-//   GET  /session/{id}/message    -> read a session's history
-// Nothing else about opencode (version, storage, internals) is assumed.
+//   GET   /session                 -> list sessions (id, title, time)
+//   POST  /session                 -> create a session
+//   PATCH /session/{id}            -> rename a session
+//   POST  /session/{id}/message    -> send a prompt, wait for the reply
+//   GET   /session/{id}/message    -> read a session's history
+// Sessions and titles live on the server, so history is shared by
+// every browser that opens this page. Nothing else about opencode
+// (version, storage, internals) is assumed.
 const $ = id => document.getElementById(id);
-const chat = $("chat"), statusEl = $("status");
+const chat = $("chat"), statusEl = $("status"), listEl = $("sessionList");
 $("server").value = localStorage.getItem("oc-server") || $("server").value;
 $("model").value = localStorage.getItem("oc-model") || $("model").value;
+let currentId = "";
 
 function base() { return $("server").value.replace(/\/+$/, ""); }
 function setStatus(text, isErr) {
@@ -74,18 +88,65 @@ async function api(path, options) {
   if (!res.ok) throw new Error(path + " -> HTTP " + res.status);
   return res.status === 204 ? null : res.json();
 }
-function sessionId() { return $("sessionId").value.trim(); }
+function fmtTime(ms) {
+  const d = new Date(ms);
+  return (d.getMonth() + 1) + "/" + d.getDate() + " " +
+    String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0");
+}
+
+async function refreshList(selectId) {
+  const sessions = await api("/session");
+  sessions.sort((a, b) => (b.time?.updated || 0) - (a.time?.updated || 0));
+  listEl.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "（セッション一覧）";
+  listEl.appendChild(none);
+  for (const s of sessions) {
+    const o = document.createElement("option");
+    o.value = s.id;
+    o.textContent = (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
+    listEl.appendChild(o);
+  }
+  const want = selectId ?? currentId;
+  if (want && sessions.some(s => s.id === want)) {
+    listEl.value = want;
+    const cur = sessions.find(s => s.id === want);
+    $("curTitle").textContent = cur.title || "(無題)";
+    $("curId").textContent = cur.id;
+  }
+  setStatus("接続済み");
+}
+
+async function loadMessages(id) {
+  const messages = await api("/session/" + encodeURIComponent(id) + "/message");
+  chat.innerHTML = "";
+  for (const m of messages) {
+    const text = (m.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
+    if (text) addMsg(m.info && m.info.role === "user" ? "user" : "assistant", text);
+  }
+}
+
+async function selectSession(id, load) {
+  currentId = id;
+  localStorage.setItem("oc-last-session", id);
+  listEl.value = id;
+  const opt = listEl.selectedOptions[0];
+  $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0] : "(無題)";
+  $("curId").textContent = id;
+  if (load) await loadMessages(id);
+}
 
 async function ensureSession() {
-  if (sessionId()) return sessionId();
+  if (currentId) return currentId;
   setStatus("セッション作成中…");
   const s = await api("/session", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: "{}",
   });
-  $("sessionId").value = s.id;
-  setStatus("接続済み");
+  await refreshList(s.id);
+  await selectSession(s.id, false);
   return s.id;
 }
 
@@ -110,6 +171,9 @@ async function send() {
     wait.remove();
     const out = (reply.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
     addMsg("assistant", out || "(テキスト応答なし)");
+    // The server assigns/updates the title after an exchange; pull
+    // the fresh list so the title bar and dropdown stay current.
+    await refreshList(id);
     setStatus("接続済み");
   } catch (e) {
     wait.remove();
@@ -125,25 +189,49 @@ $("input").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
 });
 $("newSession").onclick = async () => {
-  $("sessionId").value = "";
-  chat.innerHTML = "";
-  try { await ensureSession(); } catch (e) { setStatus("エラー: " + e.message, true); }
-};
-$("loadSession").onclick = async () => {
-  const id = sessionId();
-  if (!id) { setStatus("セッション ID がありません", true); return; }
   try {
-    const messages = await api("/session/" + encodeURIComponent(id) + "/message");
+    currentId = "";
     chat.innerHTML = "";
-    for (const m of messages) {
-      const text = (m.parts || []).filter(p => p.type === "text").map(p => p.text).join("");
-      if (text) addMsg(m.info && m.info.role === "user" ? "user" : "assistant", text);
-    }
-    setStatus("接続済み");
+    const id = await ensureSession();
+    addMsg("sys", "新しいセッションを開始しました");
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+};
+$("refreshList").onclick = async () => {
+  try { await refreshList(); } catch (e) { setStatus("エラー: " + e.message, true); }
+};
+listEl.onchange = async () => {
+  const id = listEl.value;
+  if (!id) return;
+  try { await selectSession(id, true); setStatus("接続済み"); }
+  catch (e) { setStatus("エラー: " + e.message, true); }
+};
+$("rename").onclick = async () => {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  const title = prompt("新しいタイトル", $("curTitle").textContent);
+  if (!title) return;
+  try {
+    await api("/session/" + encodeURIComponent(currentId), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title }),
+    });
+    await refreshList(currentId);
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
 $("server").onchange = () => localStorage.setItem("oc-server", $("server").value);
 $("model").onchange = () => localStorage.setItem("oc-model", $("model").value);
+
+// On open: fetch the session list and, if the last-used session is
+// still there, reopen it with its history.
+(async () => {
+  try {
+    await refreshList();
+    const last = localStorage.getItem("oc-last-session");
+    if (last && [...listEl.options].some(o => o.value === last)) {
+      await selectSession(last, true);
+    }
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+})();
 </script>
 </body>
 </html>
