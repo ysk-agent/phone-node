@@ -30,7 +30,7 @@ android {
     // The bundled tarballs are already gzip-compressed; store them
     // uncompressed in the APK, matching the manual pipeline's --no-compress.
     androidResources {
-        noCompress += "gz"
+        noCompress += listOf("gz", "tgz")
     }
 }
 

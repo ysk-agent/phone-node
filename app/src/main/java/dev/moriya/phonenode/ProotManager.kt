@@ -110,7 +110,7 @@ class ProotManager(context: Context) {
         rootfsDir.mkdirs()
         val input = TarArchiveInputStream(
             GzipCompressorInputStream(
-                BufferedInputStream(appContext.assets.open("debian-rootfs.tar.gz"))
+                BufferedInputStream(appContext.assets.open("debian-rootfs.tgz"))
             )
         )
         input.use { tar ->
@@ -158,7 +158,7 @@ class ProotManager(context: Context) {
 
     private fun copyOverlay() {
         overlayDir.mkdirs()
-        for (name in listOf("opencode.tar.gz", "authorized_keys", "node-setup.sh", "run-node.sh")) {
+        for (name in listOf("opencode.tgz", "authorized_keys", "node-setup.sh", "run-node.sh")) {
             val dest = File(overlayDir, name)
             appContext.assets.open(name).use { input ->
                 FileOutputStream(dest).use { output -> input.copyTo(output) }

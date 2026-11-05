@@ -14,7 +14,7 @@ cp /opt/phonenode/authorized_keys /root/.ssh/authorized_keys
 chmod 700 /root/.ssh
 chmod 600 /root/.ssh/authorized_keys
 
-tar -xzf /opt/phonenode/opencode.tar.gz -C /usr/local/bin
+tar -xzf /opt/phonenode/opencode.tgz -C /usr/local/bin
 chmod 755 /usr/local/bin/opencode
 
 sed -i 's/^#\?Port .*/Port 8022/' /etc/ssh/sshd_config
