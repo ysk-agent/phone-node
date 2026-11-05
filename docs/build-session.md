@@ -61,3 +61,21 @@ and verifies their SHA-256 against the result file.
   into a general-purpose server, which is outside the intended use.
 - Session releases accumulate; delete old `session-*` prereleases
   and their APK assets when they are no longer needed.
+
+## Verification (2026-11-05)
+
+- Normal CI (push to `main`): success; the artifact's APKs are
+  re-signed with the secret keystore (signer certificate SHA-256
+  matches the manual pipeline's keystore exactly).
+- Session `session-42038406299`: ready about 40 seconds after
+  dispatch (caches warm from the preceding CI run). First accepted
+  checkout built in 38 seconds; a second checkout submitted in the
+  same session completed with a 37-second end-to-end client round
+  trip (snapshot push, build, APK download, SHA-256 verification) —
+  the environment setup is fully skipped inside a session.
+- Asset check on a session-built APK: `assets/debian-rootfs.tgz`
+  (28,144,358 bytes) and `assets/opencode.tgz` (78,526,339 bytes),
+  byte-size-identical to the pinned inputs. The `.tgz` naming is
+  load-bearing: AAPT2 decompresses `.tar.gz` assets and stores them
+  under the stripped `.tar` name, which broke both size and the
+  app's asset lookups in the first CI build.
