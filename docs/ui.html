@@ -1361,6 +1361,26 @@ function updateFavModelBtn() {
   btn.textContent = favModel && favModel === cur ? "★ お気に入り解除" : "モデルをお気に入りに";
 }
 
+// 最近使ったモデル: 送信したときに使ったモデルを新しい順に最大
+// 5件まで覚え、一覧の先頭の「🕐 最近使った」にも出す。お気に入り
+// と同じ考え方で、ブラウザごとに localStorage へ保存し、サーバに
+// は触れない。送信するたびに記録するので、選んだだけで送らな
+// かったモデルは入らない。サーバの一覧にないモデルは出さない。
+const RECENT_MODELS_KEY = "oc-recent-models";
+const RECENT_MODELS_MAX = 5;
+let recentModels = [];
+try { recentModels = JSON.parse(localStorage.getItem(RECENT_MODELS_KEY) || "[]"); } catch (e) { recentModels = []; }
+if (!Array.isArray(recentModels)) recentModels = [];
+function saveRecentModels() {
+  try { localStorage.setItem(RECENT_MODELS_KEY, JSON.stringify(recentModels)); } catch (e) {}
+}
+function recordRecentModel() {
+  const m = $("model").value;
+  if (!m) return;
+  recentModels = [m, ...recentModels.filter(x => x !== m)].slice(0, RECENT_MODELS_MAX);
+  saveRecentModels();
+}
+
 // Rebuild the model dropdown from the server's providers, grouped
 // by provider. /config/providers lists only the connected providers,
 // so the list stays usable; /provider filtered by its `connected`
@@ -1418,6 +1438,25 @@ async function refreshModels() {
     o.value = saved;
     o.textContent = saved + "（取得外）";
     modelEl.insertBefore(o, modelEl.firstChild);
+  }
+  // 最近使ったモデルは、お気に入りの下に「🕐 最近使った」として
+  // 出す。お気に入りは後から先頭へ入れるので、こちらを先に入れる。
+  // お気に入りのモデルは「★ お気に入り」にすでに出ているので省き、
+  // サーバの一覧にないモデルも出さない。表示名はプロバイダの一覧
+  // のものを使い、value が重複しても保存した選択は変わらない。
+  if (recentModels.length) {
+    const group = document.createElement("optgroup");
+    group.label = "🕐 最近使った";
+    for (const m of recentModels) {
+      if (m === favModel) continue;
+      const src = [...modelEl.options].find(o => o.value === m);
+      if (!src) continue;
+      const o = document.createElement("option");
+      o.value = m;
+      o.textContent = src.textContent;
+      group.appendChild(o);
+    }
+    if (group.children.length) modelEl.insertBefore(group, modelEl.firstChild);
   }
   // お気に入りのモデルは、元のプロバイダの並びにも残したまま、
   // 先頭の「★ お気に入り」にも出す。value が重複しても select
@@ -1824,6 +1863,9 @@ let lastSentText = "";
 async function send(resendText, record = true) {
   const text = (resendText ?? $("input").value).trim();
   if (!text) return;
+  // 送信に使ったモデルを最近使ったモデルとして記録する（続きの
+  // 生成でもモデルは使うので、記録しない送信でも記録する）。
+  recordRecentModel();
   // 記録しない送信（続きの生成）は送信履歴と再送信の対象に触れ
   // ないので、↑↓キーや再送信は直前の自分のプロンプトのまま。
   if (record) {
