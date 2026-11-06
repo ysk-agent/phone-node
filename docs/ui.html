@@ -193,14 +193,14 @@ function onEvent(ev) {
     if (!streamBubble) streamBubble = addMsg("assistant", "");
     streamParts[p.part.id] = p.part.text;
     setMsgText(streamBubble, Object.values(streamParts).join(""));
-    chat.scrollTop = chat.scrollHeight;
+    scrollChat();
   } else if (ev.type === "message.part.updated" && p.part && p.part.type !== "text") {
     if (!streamMsgId || p.part.messageID !== streamMsgId) return;
     if (streamWait) { streamWait.remove(); streamWait = null; }
     const el = streamPartLines[p.part.id];
     if (el) { el.textContent = partLineText(p.part); el.className = partLineClass(p.part); }
     else streamPartLines[p.part.id] = addPartLine(p.part);
-    chat.scrollTop = chat.scrollHeight;
+    scrollChat();
   } else if (ev.type === "session.idle" ||
       (ev.type === "session.status" && p.status && p.status.type === "idle")) {
     if (waitIdle) { const resolve = waitIdle; waitIdle = null; resolve(); }
@@ -241,6 +241,14 @@ async function checkConnection() {
 function startMonitor() {
   setInterval(checkConnection, 30000);
 }
+// 会話をさかのぼって読んでいるときは自動スクロールを止める:
+// 新しいメッセージや逐次表示の更新が来ても、最下部近くにいるとき
+// だけ追従する。セッションを開いた直後や送信直後は force で
+// 最下部へ行く。「最新へ」ボタン（120px の目安）と合わせる。
+function scrollChat(force) {
+  const away = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  if (force || away <= 120) chat.scrollTop = chat.scrollHeight;
+}
 // A message bubble keeps its text in a child node, so the time
 // line below it survives streaming updates that rewrite the text.
 // An assistant or user bubble also gets a footer row (kept in _foot)
@@ -267,7 +275,7 @@ function addMsg(cls, text, ms) {
   }
   if (ms) setMsgTime(div, ms);
   chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
+  scrollChat();
   return div;
 }
 function setMsgText(div, text) { div._body.textContent = text; }
@@ -339,7 +347,7 @@ function addPartLine(p) {
   div.className = partLineClass(p);
   div.textContent = partLineText(p);
   chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
+  scrollChat();
   return div;
 }
 // Render one stored message: text parts become a bubble (split by
@@ -422,7 +430,7 @@ function addUsage(info, seconds) {
   div.className = "usage";
   div.textContent = "使用量: " + parts.join(" · ");
   chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
+  scrollChat();
 }
 
 // Rebuild the model dropdown from the server's providers, grouped
@@ -533,6 +541,7 @@ async function loadMessages(id) {
   const lastAssistant = [...messages].reverse()
     .find(m => m.info && m.info.role === "assistant");
   addUsage(lastAssistant && lastAssistant.info);
+  scrollChat(true);
   applyChatSearch();
 }
 
@@ -650,6 +659,7 @@ async function send(resendText) {
   $("deleteSession").disabled = true;
   aborted = false;
   addMsg("user", text, Date.now());
+  scrollChat(true);
   const wait = addMsg("sys", "応答待ち…");
   try {
     startReplyTimer();
