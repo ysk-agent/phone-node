@@ -53,6 +53,7 @@
   .tool.err { color: #f88; border-color: #8f2d2d; }
   .msg.dimmed, .tool.dimmed { opacity: .35; }
   .msg.match, .tool.match { outline: 1px solid #2d5a8f; }
+  .msg.current, .tool.current { outline: 2px solid #e8a33d; }
   footer { padding: 10px 12px; background: #1b1b1b; border-top: 1px solid #333;
            display: flex; gap: 8px; }
   #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
@@ -104,7 +105,7 @@
   <button id="copyChat">会話をコピー</button>
   <button id="refreshList">一覧更新</button>
 </header>
-<div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><span id="curCount"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span></div>
+<div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><span id="curCount"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button></div>
 <main id="chat"></main>
 <button id="toLatest">最新へ ↓</button>
 <footer>
@@ -1005,18 +1006,43 @@ $("sessionSearch").addEventListener("input", () => renderListOptions());
 // 目立たせ、それ以外を薄くする。検索は表示中のメッセージだけが
 // 対象で、サーバへの問い合わせはしない。検索欄はセッションを
 // 切り替えても残るので、同じ語で別の会話も探せる。
+// 「次へ／前へ」ボタンで一致したメッセージへ順に移動できる。
+// 長い会話では一致箇所まで手で探す必要がなくなる。現在位置の
+// 一致は枠を太くして示し、件数表示は「何番目/全件」になる。
+let chatMatches = [];
+let chatMatchIndex = -1;
 function applyChatSearch() {
   const q = $("chatSearch").value.trim().toLowerCase();
+  chatMatches = [];
+  chatMatchIndex = -1;
   let found = 0;
   for (const el of chat.querySelectorAll(".msg, .tool")) {
-    el.classList.remove("dimmed", "match");
+    el.classList.remove("dimmed", "match", "current");
     if (!q) continue;
     const text = el._body ? el._body.textContent : el.textContent;
-    if (text.toLowerCase().includes(q)) { el.classList.add("match"); found++; }
+    if (text.toLowerCase().includes(q)) {
+      el.classList.add("match");
+      chatMatches.push(el);
+      found++;
+    }
     else el.classList.add("dimmed");
   }
   $("chatSearchCount").textContent = q ? found + "件" : "";
+  $("chatSearchPrev").disabled = !chatMatches.length;
+  $("chatSearchNext").disabled = !chatMatches.length;
 }
+function jumpChatMatch(dir) {
+  if (!chatMatches.length) return;
+  const prev = chatMatches[chatMatchIndex];
+  if (prev) prev.classList.remove("current");
+  chatMatchIndex = (chatMatchIndex + dir + chatMatches.length) % chatMatches.length;
+  const el = chatMatches[chatMatchIndex];
+  el.classList.add("current");
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  $("chatSearchCount").textContent = (chatMatchIndex + 1) + "/" + chatMatches.length + "件";
+}
+$("chatSearchPrev").onclick = () => jumpChatMatch(-1);
+$("chatSearchNext").onclick = () => jumpChatMatch(1);
 $("chatSearch").addEventListener("input", applyChatSearch);
 // 最新へボタン: 会話をさかのぼって読んでいるときだけ表示し、
 // 押すと最新のメッセージまでなめらかに戻る。最下部に近い
