@@ -272,6 +272,7 @@
     <div class="drawerRow"><input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"><span id="sessionCount"></span></div>
     <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="pinOnlyToggle">表示: すべて</button><button id="refreshList">一覧更新</button></div>
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
+    <button id="markAllSeen" class="actbtn">すべて既読にする</button>
     <button id="copyLink" class="actbtn">リンクをコピー</button>
     <button id="rename" class="actbtn">名前変更</button>
     <button id="pinSession" class="actbtn">ピン留め</button>
@@ -1564,6 +1565,23 @@ function hasNewMessages(s) {
   return (s.time?.updated || 0) > seen;
 }
 
+// すべて既読にする: 開いていない会話に届いた新着の「●」を
+// まとめて消す。開いたことのないセッションも含め、全セッション
+// の確認時刻を今の一覧の更新時刻にそろえる。開いている会話は
+// すでに確認済みとして扱われているので対象外だが、結果は同じ。
+function markAllSeen() {
+  for (const s of allSessions) {
+    if (s.id === currentId) continue;
+    seenBySession[s.id] = s.time?.updated || s.time?.created || 0;
+  }
+  saveSeenBySession();
+  renderListOptions();
+}
+function updateMarkAllSeenBtn() {
+  $("markAllSeen").disabled = !allSessions.some(s => hasNewMessages(s));
+}
+$("markAllSeen").onclick = markAllSeen;
+
 // Rebuild the session dropdown from allSessions, keeping only the
 // sessions whose title or id contains the search box text (matched
 // case-insensitively), and, while pin-only display is on, only the
@@ -1617,6 +1635,7 @@ function renderListOptions(selectedId) {
   const total = allSessions.length;
   $("sessionCount").textContent = total ? (shown < total ? shown + "件 / 全" + total + "件" : "全" + total + "件") : "";
   updatePinBtn();
+  updateMarkAllSeenBtn();
   if (want && [...listEl.options].some(o => o.value === want)) {
     listEl.value = want;
     const cur = allSessions.find(s => s.id === want);
