@@ -67,6 +67,7 @@
 <footer>
   <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）"></textarea>
   <button id="send">送信</button>
+  <button id="resend" disabled>再送信</button>
   <button id="abort" disabled>中断</button>
 </footer>
 <script>
@@ -617,14 +618,23 @@ async function streamReply(id, text, wait) {
     addMsg("assistant", "(テキスト応答なし)");
 }
 
-async function send() {
-  const text = $("input").value.trim();
+// 直前のプロンプトをもう一度送る: 応答が途中で切れたりエラーに
+// なったりしたとき、同じ文を入力し直さずに再送できる。再送時は
+// 入力欄の下書きには触れない。send() に引数を渡すとその文を送り、
+// 渡さなければ入力欄の文を送る。
+let lastSentText = "";
+async function send(resendText) {
+  const text = (resendText ?? $("input").value).trim();
   if (!text) return;
   saveHistory(text);
-  $("input").value = "";
-  localStorage.removeItem("oc-draft");
-  autoResize();
+  lastSentText = text;
+  if (resendText === undefined) {
+    $("input").value = "";
+    localStorage.removeItem("oc-draft");
+    autoResize();
+  }
   $("send").disabled = true;
+  $("resend").disabled = true;
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
   aborted = false;
@@ -659,12 +669,14 @@ async function send() {
     streamPartLines = {};
     waitIdle = null;
     $("send").disabled = false;
+    $("resend").disabled = !lastSentText;
     $("abort").disabled = true;
     $("deleteSession").disabled = false;
   }
 }
 
-$("send").onclick = send;
+$("send").onclick = () => send();
+$("resend").onclick = () => { if (lastSentText) send(lastSentText); };
 $("abort").onclick = abortReply;
 $("input").addEventListener("keydown", e => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
