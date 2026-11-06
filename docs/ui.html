@@ -101,6 +101,7 @@
   <button id="pinSession">ピン留め</button>
   <button id="deleteSession">削除</button>
   <button id="exportMd">書き出し</button>
+  <button id="copyChat">会話をコピー</button>
   <button id="refreshList">一覧更新</button>
 </header>
 <div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><span id="curCount"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span></div>
@@ -1132,6 +1133,33 @@ async function exportConversation() {
   } catch (e) { setStatus("エラー: " + e.message, true); }
 }
 $("exportMd").onclick = exportConversation;
+// 会話全体をコピーする: 書き出し（ファイル保存）とは別に、
+// 現在の会話をそのままの文面でクリップボードに入れる。他の
+// ツールへ貼り付けるときに使う。文面は書き出しと同じ材料
+// （テキスト、ツール呼び出しの行、使用量）で作る。
+async function copyConversation() {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  try {
+    const messages = await api("/session/" + encodeURIComponent(currentId) + "/message");
+    const lines = [$("curTitle").textContent, ""];
+    for (const m of messages) {
+      const role = m.info && m.info.role === "user" ? "ユーザー" : "アシスタント";
+      const t = msgTime(m);
+      lines.push(role + (t ? "（" + fmtTime(t) + "）" : "") + ":");
+      for (const p of m.parts || []) {
+        if (p.type === "text") lines.push(p.text);
+        else lines.push(partLineText(p));
+      }
+      const parts = usageParts(m.info);
+      if (parts.length) lines.push("使用量: " + parts.join(" · "));
+      lines.push("");
+    }
+    const ok = await copyText(lines.join("\n"));
+    if (ok) addMsg("sys", "会話をコピーしました");
+    else setStatus("コピーに失敗しました", true);
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+}
+$("copyChat").onclick = copyConversation;
 $("server").onchange = () => {
   localStorage.setItem("oc-server", $("server").value);
   connectEvents();
