@@ -538,6 +538,7 @@ function onEvent(ev) {
 
 async function abortReply() {
   if (!pendingId) return;
+  stopSpeaking();
   $("abort").disabled = true;
   aborted = true;
   try {
@@ -662,7 +663,9 @@ function renderMarkdown(text) {
 // An assistant or user bubble also gets a footer row (kept in _foot)
 // with the time line and a copy button; the time is inserted at the
 // foot's start when it becomes known, so streaming updates that
-// set the time later keep the same layout.
+// set the time later keep the same layout. An assistant bubble
+// also gets a read-aloud button (when the browser supports speech
+// synthesis), so a reply can be listened to instead of read.
 function addMsg(cls, text, ms) {
   const div = document.createElement("div");
   div.className = "msg " + cls;
@@ -681,6 +684,16 @@ function addMsg(cls, text, ms) {
     btn.textContent = "コピー";
     btn.onclick = () => copyMsg(div, btn);
     foot.appendChild(btn);
+    // アシスタントの応答の読み上げボタン。ブラウザの音声合成で
+    // 本文を日本語で読み上げる。対応していないブラウザでは付け
+    // ない。もう一度押すか、読み上げが終わると表示が戻る。
+    if (cls === "assistant" && "speechSynthesis" in window) {
+      const speakBtn = document.createElement("button");
+      speakBtn.className = "copybtn";
+      speakBtn.textContent = "読み上げ";
+      speakBtn.onclick = () => speakMsg(div, speakBtn);
+      foot.insertBefore(speakBtn, btn);
+    }
     // 長いメッセージの折りたたみボタン。表示の切り替えだけで、
     // コピーや会話内検索の対象は全文のまま。長さが足りない間は隠す。
     const foldBtn = document.createElement("button");
@@ -780,6 +793,29 @@ async function copyMsg(div, btn) {
   const ok = await copyText(div._rawText ?? div._body.textContent);
   btn.textContent = ok ? "コピー済み" : "コピー失敗";
   setTimeout(() => { btn.textContent = "コピー"; }, 1500);
+}
+// Read an assistant reply aloud with the browser's speech
+// synthesis (Japanese). The button toggles to "停止" while its
+// message is being read; starting another message, sending a new
+// prompt, or aborting a reply stops the current one first, so
+// only one message ever speaks at a time.
+let speakingBtn = null;
+function stopSpeaking() {
+  if (speakingBtn) { speakingBtn.textContent = "読み上げ"; speakingBtn = null; }
+  if ("speechSynthesis" in window) speechSynthesis.cancel();
+}
+function speakMsg(div, btn) {
+  if (speakingBtn === btn) { stopSpeaking(); return; }
+  stopSpeaking();
+  const text = (div._rawText ?? div._body.textContent ?? "").trim();
+  if (!text) return;
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = "ja-JP";
+  u.onend = () => { if (speakingBtn === btn) stopSpeaking(); };
+  u.onerror = () => { if (speakingBtn === btn) stopSpeaking(); };
+  speakingBtn = btn;
+  btn.textContent = "停止";
+  speechSynthesis.speak(u);
 }
 // The time a message was created, shown as a small muted line at
 // the bottom of its bubble. fmtTime (M/D HH:MM) is shared with the
@@ -1305,6 +1341,7 @@ async function send(resendText, record = true) {
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
   aborted = false;
+  stopSpeaking();
   ensureAudio();
   addMsg("user", text, Date.now());
   scrollChat(true);
