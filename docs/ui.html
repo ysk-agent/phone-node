@@ -237,7 +237,7 @@
 </style>
 </head>
 <body>
-<div id="topbar"><button id="drawerBtn" title="メニュー">☰</button><span id="curTitle">（セッション未選択）</span><button id="newSession" title="新規セッション">＋</button></div>
+<div id="topbar"><button id="drawerBtn" title="メニュー">☰</button><span id="curTitle">（セッション未選択）</span><button id="newSession" title="新規セッション（Nキーでも開始できます）">＋</button></div>
 <div id="searchBar"><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="chatSearchClose" class="copybtn">閉じる</button></div>
 <div id="chatWrap"><main id="chat"></main><button id="toLatest">最新へ ↓</button><button id="toTop">先頭へ ↑</button></div>
 <div id="statusBar"><span id="status">未接続</span></div>
@@ -311,6 +311,7 @@
     <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>入力欄で送信したプロンプトの履歴をたどる</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>会話内検索へ移動する</td></tr>
     <tr><td><kbd>/</kbd></td><td>入力欄へ移動する</td></tr>
+    <tr><td><kbd>N</kbd></td><td>新しいセッションを開始する（入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>?</kbd></td><td>この一覧を開く（入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>この一覧を閉じる</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>応答中の生成を中断する（ドロワーやメニューが開いているときはそちらを閉じる）</td></tr>
@@ -2849,7 +2850,10 @@ updateFavModelBtn();
 // Ctrl+K は会話内検索へ移動する（ブラウザの検索欄を開く既定の
 // 動作は止める）。「/」は入力欄へ移動する。「?」は入力欄・選択欄に
 // いるときは文字入力に譲るので、そこでは開かない。「/」も同じく
-// 入力欄・選択欄では文字入力に譲る。
+// 入力欄・選択欄では文字入力に譲る。「N」は新しいセッションを
+// 開始する（上部バーの「＋」と同じ処理で、ドロワーも閉じる）。
+// 一覧が開いている間は誤ってセッションを作らないよう、
+// 「/」「?」「N」はどれも効かない。
 const shortcutDialog = $("shortcutHelp");
 $("shortcutBtn").onclick = () => shortcutDialog.showModal();
 $("shortcutClose").onclick = () => shortcutDialog.close();
@@ -2867,6 +2871,13 @@ document.addEventListener("keydown", e => {
   if (e.key === "/" && !typing) {
     e.preventDefault();
     $("input").focus();
+    return;
+  }
+  if ((e.key === "n" || e.key === "N") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey
+      && !shortcutDialog.open) {
+    // 新規作成ボタンのクリックと同じ処理: 作成そのものに加えて
+    // ドロワーを閉じる配線も走るので、直接呼ぶより click を使う。
+    $("newSession").click();
     return;
   }
   if (e.key === "?" && !typing) {
