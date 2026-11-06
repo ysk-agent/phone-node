@@ -281,6 +281,7 @@
     <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="pinOnlyToggle">表示: すべて</button><button id="refreshList">一覧更新</button></div>
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
     <button id="markAllSeen" class="actbtn">すべて既読にする</button>
+    <button id="markUnread" class="actbtn">未読に戻す</button>
     <button id="nextUnread" class="actbtn">次の未読へ</button>
     <div class="drawerRow"><button id="prevSession">← 前の会話へ</button><button id="nextSession">次の会話へ →</button></div>
     <button id="copyLink" class="actbtn">リンクをコピー</button>
@@ -1772,6 +1773,18 @@ if (!seenBySession || typeof seenBySession !== "object" || Array.isArray(seenByS
 function saveSeenBySession() {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify(seenBySession)); } catch (e) {}
 }
+// 手動の未読印: 開いている会話をあとで読み返したいとき、
+// 「未読に戻す」で付ける印。確認時刻（seenBySession）とは別に
+// 持つのは、一覧の取得が開いている会話を毎回既読にし直す
+// （refreshList）ため、確認時刻だけを戻しても次の取得で消えて
+// しまうから。会話を開き直すと印は消える（selectSession）。
+const UNREAD_KEY = "oc-unread-by-session";
+let manuallyUnread = {};
+try { manuallyUnread = JSON.parse(localStorage.getItem(UNREAD_KEY) || "{}"); } catch (e) { manuallyUnread = {}; }
+if (!manuallyUnread || typeof manuallyUnread !== "object" || Array.isArray(manuallyUnread)) manuallyUnread = {};
+function saveManuallyUnread() {
+  try { localStorage.setItem(UNREAD_KEY, JSON.stringify(manuallyUnread)); } catch (e) {}
+}
 function markSessionSeen(id) {
   if (!id) return;
   const s = allSessions.find(x => x.id === id);
@@ -1781,6 +1794,7 @@ function markSessionSeen(id) {
 }
 function hasNewMessages(s) {
   if (!s || s.id === currentId) return false;
+  if (manuallyUnread[s.id]) return true;
   const seen = seenBySession[s.id];
   if (typeof seen !== "number" || !seen) return false;
   return (s.time?.updated || 0) > seen;
@@ -1795,18 +1809,37 @@ function unreadCount() {
 // まとめて消す。開いたことのないセッションも含め、全セッション
 // の確認時刻を今の一覧の更新時刻にそろえる。開いている会話は
 // すでに確認済みとして扱われているので対象外だが、結果は同じ。
+// 手動の未読印もまとめて消す。
 function markAllSeen() {
   for (const s of allSessions) {
     if (s.id === currentId) continue;
     seenBySession[s.id] = s.time?.updated || s.time?.created || 0;
   }
   saveSeenBySession();
+  manuallyUnread = {};
+  saveManuallyUnread();
   renderListOptions();
 }
 function updateMarkAllSeenBtn() {
   $("markAllSeen").disabled = !allSessions.some(s => hasNewMessages(s));
 }
 $("markAllSeen").onclick = markAllSeen;
+
+// 未読に戻す: 開いている会話に手動の未読印を付け、別の会話へ
+// 移ったときに一覧で「●」が付くようにする。開いている間は ●
+// が付かない（hasNewMessages が開いている会話を対象外にして
+// いるため）。一覧の取得で開いている会話が既読にされ直しても
+// 印は残り、会話を開き直すか「すべて既読にする」で消える。
+function updateMarkUnreadBtn() {
+  $("markUnread").disabled = !currentId;
+}
+$("markUnread").onclick = () => {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  manuallyUnread[currentId] = 1;
+  saveManuallyUnread();
+  renderListOptions();
+  setStatus("「" + $("curTitle").textContent + "」を未読に戻しました");
+};
 
 // 次の未読へ: 「●」の付いた未読セッションを一覧と同じ並び順
 // （ピン留め優先・選択中の並び替え順）でたどる。開いている会話
@@ -1894,6 +1927,7 @@ function renderListOptions(selectedId) {
     } catch (e) { /* 下書きが読めなくても一覧表示には影響しない */ }
     // A ● mark needs a seen record: a session never opened here
     // has none, so old sessions do not all look new on first use.
+    // A manual unread mark (see markUnread) is the exception.
     const newMark = hasNewMessages(s) ? "● " : "";
     o.textContent = (isPinned(s.id) ? "📌 " : "") + newMark + draftMark + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
     listEl.appendChild(o);
@@ -1903,6 +1937,7 @@ function renderListOptions(selectedId) {
   $("sessionCount").textContent = total ? (shown < total ? shown + "件 / 全" + total + "件" : "全" + total + "件") : "";
   updatePinBtn();
   updateMarkAllSeenBtn();
+  updateMarkUnreadBtn();
   updateNextUnreadBtn();
   updateStepSessionBtns();
   if (want && [...listEl.options].some(o => o.value === want)) {
@@ -1988,6 +2023,8 @@ async function selectSession(id, load) {
   currentId = id;
   // Opening a session marks it seen, so its ● mark (if any) clears.
   markSessionSeen(id);
+  delete manuallyUnread[id];
+  saveManuallyUnread();
   updateUnrevertBtn();
   loadDraftFor(id);
   updateCopyIdBtn();
@@ -2827,6 +2864,8 @@ $("deleteSession").onclick = async () => {
     saveModelBySession();
     delete seenBySession[currentId];
     saveSeenBySession();
+    delete manuallyUnread[currentId];
+    saveManuallyUnread();
     try { localStorage.removeItem(draftKey(currentId)); } catch (e) {}
     delete lastByServer[base()];
     saveLastByServer();
