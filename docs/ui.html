@@ -62,12 +62,35 @@
      フッターの上に浮かせ、表示・非表示は JS が切り替える。 */
   #toLatest { position: fixed; right: 14px; bottom: 84px; display: none;
               box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  /* 明るい表示: 暗い配色のままでは日差しの強い場所で読みにくい
+     ため、背景と文字色を入れ替えた配色を用意する。ヘッダーの
+     ボタンで切り替え、選択は localStorage に保存する。 */
+  body.light { color-scheme: light; background: #f4f4f4; color: #222; }
+  body.light header { background: #fff; border-color: #ddd; }
+  body.light header input, body.light header select { background: #fff; color: #222; border-color: #bbb; }
+  body.light #status { color: #2a7a2a; }
+  body.light #status.err { color: #c00; }
+  body.light #titleBar { background: #ececec; border-color: #ddd; }
+  body.light #curId, body.light #curCount, body.light #chatSearchCount { color: #666; }
+  body.light #titleBar input { background: #fff; color: #222; border-color: #bbb; }
+  body.light .user { background: #2d5a8f; color: #fff; }
+  body.light .assistant { background: #fff; border-color: #ddd; color: #222; }
+  body.light .sys { color: #666; }
+  body.light .msgtime { color: #666; }
+  body.light .copybtn { border-color: #999; color: #555; }
+  body.light .usage { color: #666; }
+  body.light .tool { color: #555; border-color: #999; }
+  body.light .tool.err { color: #c00; border-color: #c00; }
+  body.light footer { background: #fff; border-color: #ddd; }
+  body.light #input { background: #fff; color: #222; border-color: #bbb; }
+  body.light #charCount { color: #666; }
 </style>
 </head>
 <body>
 <header>
   <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
   <label>モデル <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select></label>
+  <button id="themeToggle">明るい表示</button>
   <span id="status">未接続</span>
 </header>
 <header>
@@ -116,6 +139,20 @@
 // (version, storage, internals) is assumed.
 const $ = id => document.getElementById(id);
 const chat = $("chat"), statusEl = $("status"), listEl = $("sessionList");
+// 表示テーマの切り替え: 暗い表示（既定）と明るい表示をヘッダーの
+// ボタンで切り替え、選択は localStorage に保存して次回も使う。
+// 明るい表示の配色は body.light の CSS が決める。
+const THEME_KEY = "oc-theme";
+function applyTheme(light) {
+  document.body.classList.toggle("light", light);
+  $("themeToggle").textContent = light ? "暗い表示" : "明るい表示";
+}
+applyTheme(localStorage.getItem(THEME_KEY) === "light");
+$("themeToggle").onclick = () => {
+  const light = !document.body.classList.contains("light");
+  try { localStorage.setItem(THEME_KEY, light ? "light" : "dark"); } catch (e) {}
+  applyTheme(light);
+};
 $("server").value = localStorage.getItem("oc-server") || $("server").value;
 // The saved model may not be among the initial options, so add it
 // as an option first; refreshModels() rebuilds the list from the
