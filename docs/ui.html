@@ -413,6 +413,25 @@ function applySessionModel(id) {
   modelEl.value = m;
   try { localStorage.setItem("oc-model", m); } catch (e) {}
 }
+// サーバごとの最後のセッション: ノードを切り替えると会話も
+// 変わるため、サーバごとに最後に開いたセッションを localStorage
+// に覚えておき、切り替えたときに開き直す。セッションごとの
+// モデルと同じくブラウザごとの設定で、セッションの削除時に
+// そのサーバの記録も消す。oc-last-session は以前の版との
+// 互換のために残し、記録がないサーバではそちらを代わりに使う。
+const LAST_BY_SERVER_KEY = "oc-last-session-by-server";
+let lastByServer = {};
+try { lastByServer = JSON.parse(localStorage.getItem(LAST_BY_SERVER_KEY) || "{}"); } catch (e) { lastByServer = {}; }
+if (!lastByServer || typeof lastByServer !== "object" || Array.isArray(lastByServer)) lastByServer = {};
+function saveLastByServer() {
+  try { localStorage.setItem(LAST_BY_SERVER_KEY, JSON.stringify(lastByServer)); } catch (e) {}
+}
+function rememberLastSession(id) {
+  if (!id) return;
+  lastByServer[base()] = id;
+  saveLastByServer();
+  try { localStorage.setItem("oc-last-session", id); } catch (e) {}
+}
 let currentId = "";
 // All sessions fetched from the server, kept so the search box can
 // filter the dropdown without another fetch.
@@ -1163,7 +1182,7 @@ async function selectSession(id, load) {
   currentId = id;
   updateCopyIdBtn();
   applySessionModel(id);
-  localStorage.setItem("oc-last-session", id);
+  rememberLastSession(id);
   listEl.value = id;
   const opt = listEl.selectedOptions[0];
   $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0].replace(/^📌 /, "") : "(無題)";
@@ -1658,6 +1677,8 @@ $("deleteSession").onclick = async () => {
     savePinned();
     delete modelBySession[currentId];
     saveModelBySession();
+    delete lastByServer[base()];
+    saveLastByServer();
     currentId = "";
     lastKnownMsgCount = -1;
     updateCopyIdBtn();
@@ -1793,7 +1814,33 @@ $("server").onchange = () => {
   connectEvents();
   refreshModels();
   checkConnection();
+  switchServerSession();
 };
+// サーバの切り替え: 一覧を新しいサーバのものに更新し、その
+// サーバで最後に開いたセッションがあれば開き直す。なければ
+// 会話表示を空にして、前のサーバの会話が残ったままにならない
+// ようにする。取得に失敗したときは接続監視が知らせる。
+async function switchServerSession() {
+  try {
+    await refreshList();
+    const id = lastByServer[base()];
+    if (id && [...listEl.options].some(o => o.value === id)) {
+      await selectSession(id, true);
+      setStatus("接続済み");
+    } else {
+      currentId = "";
+      lastKnownMsgCount = -1;
+      updateCopyIdBtn();
+      chat.innerHTML = "";
+      setMsgCount(0);
+      $("curTitle").textContent = "（セッション未選択）";
+      $("curId").textContent = "";
+      updatePinBtn();
+      applyChatSearch();
+      updateFoldAllBtn();
+    }
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+}
 // 履歴から接続先を選ぶ: サーバ欄に入れて変更時と同じ処理を走らせ、
 // 一覧は選び直せるよう placeholder に戻す。
 $("serverHistory").onchange = () => {
@@ -1840,7 +1887,7 @@ document.addEventListener("keydown", e => {
   try { await refreshModels(); } catch (e) { /* keep the saved model option */ }
   try {
     await refreshList();
-    const last = localStorage.getItem("oc-last-session");
+    const last = lastByServer[base()] || localStorage.getItem("oc-last-session");
     if (last && [...listEl.options].some(o => o.value === last)) {
       await selectSession(last, true);
     }
