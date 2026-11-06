@@ -215,6 +215,24 @@
   #shortcutHelp .closebtn { margin-top: 12px; }
   body.light #shortcutHelp { background: #fff; color: #222; border-color: #bbb; }
   body.light #shortcutHelp kbd { background: #eee; border-color: #bbb; }
+  /* 印刷: 会話だけを紙や PDF に残すため、上部バー・検索バー・
+     入力カード・状態帯・ドロワー・操作ボタンを隠し、会話エリアの
+     スクロールを解いて全文を出す。暗い配色のままではインクを
+     使うため、吹き出しも白地に黒文字へ替える。 */
+  @media print {
+    body { display: block; height: auto; background: #fff; color: #222; }
+    #topbar, #searchBar, #composer, #statusBar, #drawer, #scrim,
+    #toLatest, #toTop, .copybtn, .codecopy, .codefoldbtn, #toolMenu { display: none !important; }
+    #chatWrap { display: block; }
+    main { overflow: visible; padding: 0; }
+    .msg { max-width: 100%; background: #fff !important; color: #222 !important;
+           border: 1px solid #999; }
+    .msg a { color: #1a5fb4; }
+    .msg pre { background: #f0f0f0; border-color: #999; }
+    .msg code { background: rgba(0,0,0,.07); }
+    .msgtime, .usage, .tool { color: #555; }
+    .sys { color: #555; }
+  }
 </style>
 </head>
 <body>
@@ -259,6 +277,7 @@
     <button id="exportMd" class="actbtn">書き出し</button>
     <button id="exportJson" class="actbtn">JSON書き出し</button>
     <button id="copyChat" class="actbtn">会話をコピー</button>
+    <button id="printChat" class="actbtn">印刷する</button>
     <button id="deleteSession" class="actbtn">削除</button>
   </div>
   <div class="drawerSection">
@@ -2301,6 +2320,16 @@ async function copyConversation() {
   } catch (e) { setStatus("エラー: " + e.message, true); }
 }
 $("copyChat").onclick = copyConversation;
+// 会話を印刷する: ブラウザの印刷ダイアログを開き、会話を紙や PDF
+// に残せるようにする。印刷用の CSS（@media print）が上部バーや
+// 入力カードなどの操作部分を隠すので、会話だけが印刷される。
+// ドロワーを閉じてから開く（開いたまま印刷するとドロワーが紙面に
+// 残るため）。セッション未選択のときは何もしない。
+$("printChat").onclick = () => {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  closeDrawer();
+  setTimeout(() => window.print(), 150);
+};
 $("server").onchange = () => {
   localStorage.setItem("oc-server", $("server").value);
   rememberServer($("server").value);
