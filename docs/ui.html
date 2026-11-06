@@ -13,6 +13,7 @@
   header input, header select { background: #222; color: #eee; border: 1px solid #444;
            border-radius: 6px; padding: 5px 8px; font-size: 13px; }
   #server { width: 230px; } #model { width: 250px; }
+  #serverHistory { max-width: 210px; }
   #sessionSearch { width: 170px; }
   #sessionList { flex: 1; min-width: 220px; }
   button { background: #2d5a8f; color: #fff; border: 0; border-radius: 6px;
@@ -114,6 +115,7 @@
 <body>
 <header>
   <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
+  <label>履歴 <select id="serverHistory"><option value="">（履歴から選ぶ）</option></select></label>
   <label>モデル <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select></label>
   <button id="themeToggle">明るい表示</button>
   <button id="soundToggle">通知音: オン</button>
@@ -236,6 +238,43 @@ $("soundToggle").onclick = () => {
   if (soundOn) { ensureAudio(); if (audioCtx) playTone(880, audioCtx.currentTime, 0.15); }
 };
 $("server").value = localStorage.getItem("oc-server") || $("server").value;
+// 接続先の履歴: 場所ごとに置いたノード（自宅・コワーキングなど）は
+// サーバのアドレスが違うため、使った接続先を localStorage に最大
+// 10件まで保存し、履歴の一覧から選んで切り替えられるようにする。
+// 履歴から選ぶとサーバ欄の変更と同じ扱いになり、イベント接続・
+// モデル一覧・接続確認をやり直す。末尾の / は除いて保存するので、
+// 同じ接続先が表記違いで重複しない。
+const SERVERS_KEY = "oc-servers";
+const SERVERS_MAX = 10;
+let savedServers = [];
+try { savedServers = JSON.parse(localStorage.getItem(SERVERS_KEY) || "[]"); } catch (e) { savedServers = []; }
+if (!Array.isArray(savedServers)) savedServers = [];
+function saveServers() {
+  try { localStorage.setItem(SERVERS_KEY, JSON.stringify(savedServers)); } catch (e) {}
+}
+function renderServerHistory() {
+  const el = $("serverHistory");
+  el.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "（履歴から選ぶ）";
+  el.appendChild(none);
+  for (const u of savedServers) {
+    const o = document.createElement("option");
+    o.value = u;
+    o.textContent = u;
+    el.appendChild(o);
+  }
+}
+function rememberServer(url) {
+  url = (url || "").replace(/\/+$/, "");
+  if (!url) return;
+  savedServers = [url, ...savedServers.filter(u => u !== url)].slice(0, SERVERS_MAX);
+  saveServers();
+  renderServerHistory();
+}
+renderServerHistory();
+rememberServer($("server").value);
 // The saved model may not be among the initial options, so add it
 // as an option first; refreshModels() rebuilds the list from the
 // server and keeps the saved value selected when it is available.
@@ -1499,9 +1538,19 @@ async function copyConversation() {
 $("copyChat").onclick = copyConversation;
 $("server").onchange = () => {
   localStorage.setItem("oc-server", $("server").value);
+  rememberServer($("server").value);
   connectEvents();
   refreshModels();
   checkConnection();
+};
+// 履歴から接続先を選ぶ: サーバ欄に入れて変更時と同じ処理を走らせ、
+// 一覧は選び直せるよう placeholder に戻す。
+$("serverHistory").onchange = () => {
+  const url = $("serverHistory").value;
+  if (!url) return;
+  $("server").value = url;
+  $("server").onchange();
+  $("serverHistory").value = "";
 };
 $("model").onchange = () => localStorage.setItem("oc-model", $("model").value);
 
