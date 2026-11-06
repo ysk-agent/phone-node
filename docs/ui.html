@@ -100,6 +100,7 @@
 <header>
   <select id="sessionList"><option value="">（セッション一覧）</option></select>
   <label>検索 <input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"></label>
+  <button id="sortSessions">並び替え: 更新順</button>
   <button id="newSession">新規</button>
   <button id="rename">名前変更</button>
   <button id="pinSession">ピン留め</button>
@@ -674,12 +675,31 @@ function updatePinBtn() {
   $("pinSession").disabled = !currentId;
 }
 
+// セッション一覧の並び替え: 更新順（既定）と作成順を切り替える。
+// 並び順は localStorage に保存し、次回も使う。ピン留めした
+// セッションはどちらの順でも先頭に来る。
+const SORT_KEY = "oc-session-sort";
+let sessionSort = localStorage.getItem(SORT_KEY) === "created" ? "created" : "updated";
+function updateSortBtn() {
+  $("sortSessions").textContent = "並び替え: " + (sessionSort === "created" ? "作成順" : "更新順");
+}
+function sessionSortTime(s) {
+  return sessionSort === "created" ? (s.time?.created || 0) : (s.time?.updated || 0);
+}
+$("sortSessions").onclick = () => {
+  sessionSort = sessionSort === "created" ? "updated" : "created";
+  try { localStorage.setItem(SORT_KEY, sessionSort); } catch (e) {}
+  updateSortBtn();
+  renderListOptions();
+};
+updateSortBtn();
+
 // Rebuild the session dropdown from allSessions, keeping only the
 // sessions whose title or id contains the search box text (matched
 // case-insensitively). The selected session is always shown, so
 // filtering never loses the current selection or a just-created
-// session passed as selectedId. Pinned sessions come first (in
-// their updated order), with a 📌 mark on their titles.
+// session passed as selectedId. Pinned sessions come first (in the
+// chosen sort order), with a 📌 mark on their titles.
 function renderListOptions(selectedId) {
   const want = selectedId ?? currentId;
   const q = $("sessionSearch").value.trim().toLowerCase();
@@ -689,7 +709,8 @@ function renderListOptions(selectedId) {
   none.textContent = "（セッション一覧）";
   listEl.appendChild(none);
   const sorted = [...allSessions].sort((a, b) =>
-    (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0));
+    (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0) ||
+    sessionSortTime(b) - sessionSortTime(a));
   for (const s of sorted) {
     if (q && s.id !== want &&
         !(s.title || "").toLowerCase().includes(q) &&
