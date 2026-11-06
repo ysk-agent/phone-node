@@ -41,6 +41,12 @@
   .msg code { background: rgba(255,255,255,.09); padding: 1px 4px;
               border-radius: 4px; font-size: 13px; }
   .msg pre code { background: none; padding: 0; }
+  /* コードブロックのコピー: フェンス付きコードの右上に置く小さな
+     ボタン。見た目はメッセージのコピーボタンと同じで、位置だけ
+     この class で決める。pre は横スクロールするため、ボタンは
+     pre の右上に固定される。 */
+  .msg pre { position: relative; }
+  .msg pre .codecopy { position: absolute; top: 6px; right: 6px; }
   .msg a { color: #7fb3e8; }
   .md-h1 { font-size: 17px; font-weight: 700; margin: 6px 0 2px; }
   .md-h2 { font-size: 15px; font-weight: 700; margin: 6px 0 2px; }
@@ -600,9 +606,31 @@ function addMsg(cls, text, ms) {
 }
 function setMsgText(div, text) {
   div._rawText = text;
-  if (div._rich) div._body.innerHTML = renderMarkdown(text);
-  else div._body.textContent = text;
+  if (div._rich) {
+    div._body.innerHTML = renderMarkdown(text);
+    addCodeCopyButtons(div);
+  } else div._body.textContent = text;
   updateFold(div);
+}
+// コードブロックのコピー: アシスタントの応答に含まれるフェンス付き
+// コードの右上に小さなコピーボタンを置く。メッセージ全体のコピー
+// では本文も一緒に入るため、コードだけを貼り付けたいときに使う。
+// 逐次表示で innerHTML を書き直すたびに付け直すので、既に付いて
+// いる pre には付けない。ボタンは copyMsg と同じ表示切替をする。
+function addCodeCopyButtons(div) {
+  for (const pre of div._body.querySelectorAll("pre")) {
+    if (pre.querySelector(".codecopy")) continue;
+    const btn = document.createElement("button");
+    btn.className = "copybtn codecopy";
+    btn.textContent = "コピー";
+    btn.onclick = async () => {
+      const code = pre.querySelector("code");
+      const ok = await copyText(code ? code.textContent : pre.textContent);
+      btn.textContent = ok ? "コピー済み" : "コピー失敗";
+      setTimeout(() => { btn.textContent = "コピー"; }, 1500);
+    };
+    pre.appendChild(btn);
+  }
 }
 // 長いメッセージの折りたたみ: 2000文字を超えるメッセージは最初は
 // 先頭だけを表示し、「続きを表示」で全体を開く。折りたたみは表示だけ
