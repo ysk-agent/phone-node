@@ -194,6 +194,7 @@
     <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>入力欄で改行する（送信キーが Enter のとき）</td></tr>
     <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>入力欄で送信したプロンプトの履歴をたどる</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>会話内検索へ移動する</td></tr>
+    <tr><td><kbd>/</kbd></td><td>入力欄へ移動する</td></tr>
     <tr><td><kbd>?</kbd></td><td>この一覧を開く（入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>この一覧を閉じる</td></tr>
   </table>
@@ -2024,8 +2025,9 @@ $("refreshModels").onclick = async () => {
 // キーボードショートカットの一覧: ヘッダーのボタンか「?」キーで
 // 標準の <dialog> を開く。Esc や背景のクリックでも閉じる。
 // Ctrl+K は会話内検索へ移動する（ブラウザの検索欄を開く既定の
-// 動作は止める）。「?」は入力欄・選択欄にいるときは文字入力に
-// 譲るので、そこでは開かない。
+// 動作は止める）。「/」は入力欄へ移動する。「?」は入力欄・選択欄に
+// いるときは文字入力に譲るので、そこでは開かない。「/」も同じく
+// 入力欄・選択欄では文字入力に譲る。
 const shortcutDialog = $("shortcutHelp");
 $("shortcutBtn").onclick = () => shortcutDialog.showModal();
 $("shortcutClose").onclick = () => shortcutDialog.close();
@@ -2039,7 +2041,13 @@ document.addEventListener("keydown", e => {
     return;
   }
   const t = e.target;
-  if (e.key === "?" && !(t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT"))) {
+  const typing = t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");
+  if (e.key === "/" && !typing) {
+    e.preventDefault();
+    $("input").focus();
+    return;
+  }
+  if (e.key === "?" && !typing) {
     if (!shortcutDialog.open) { e.preventDefault(); shortcutDialog.showModal(); }
   }
 });
