@@ -116,6 +116,7 @@
   <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
   <label>モデル <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select></label>
   <button id="themeToggle">明るい表示</button>
+  <button id="soundToggle">通知音: オン</button>
   <span id="status">未接続</span>
 </header>
 <header>
@@ -182,6 +183,57 @@ $("themeToggle").onclick = () => {
   const light = !document.body.classList.contains("light");
   try { localStorage.setItem(THEME_KEY, light ? "light" : "dark"); } catch (e) {}
   applyTheme(light);
+};
+// 応答完了を音で知らせる: 無料モデルは応答が遅いことがあるため、
+// 他のタブを見ている間に返信が終わっても気づけるよう、タブが隠れて
+// いるときだけ短い音を鳴らす。タブを見ているときは画面で分かるので
+// 鳴らさない。音は WebAudio の発振器で作るので外部ファイルは要らない。
+// AudioContext は送信時のクリック（ユーザーの操作）で作っておく:
+// 応答完了の時点では操作から時間が経っていて作れない場合があるため。
+// ヘッダーのボタンで切り替え、選択は localStorage に保存する。
+const SOUND_KEY = "oc-sound";
+let soundOn = localStorage.getItem(SOUND_KEY) !== "off";
+let audioCtx = null;
+function updateSoundBtn() {
+  $("soundToggle").textContent = "通知音: " + (soundOn ? "オン" : "オフ");
+}
+function ensureAudio() {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    if (audioCtx.state === "suspended") audioCtx.resume();
+  } catch (e) { audioCtx = null; }
+}
+function playTone(freq, startAt, dur) {
+  const osc = audioCtx.createOscillator();
+  const gain = audioCtx.createGain();
+  osc.type = "sine";
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0.0001, startAt);
+  gain.gain.exponentialRampToValueAtTime(0.2, startAt + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + dur);
+  osc.connect(gain);
+  gain.connect(audioCtx.destination);
+  osc.start(startAt);
+  osc.stop(startAt + dur + 0.05);
+}
+function playNotify(kind) {
+  if (!soundOn || !audioCtx || !document.hidden) return;
+  try {
+    const t = audioCtx.currentTime;
+    if (kind === "done") {
+      playTone(880, t, 0.18);
+      playTone(1318.5, t + 0.2, 0.25);
+    } else {
+      playTone(330, t, 0.25);
+    }
+  } catch (e) { /* 音が出なくても応答表示には影響しない */ }
+}
+updateSoundBtn();
+$("soundToggle").onclick = () => {
+  soundOn = !soundOn;
+  try { localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off"); } catch (e) {}
+  updateSoundBtn();
+  if (soundOn) { ensureAudio(); if (audioCtx) playTone(880, audioCtx.currentTime, 0.15); }
 };
 $("server").value = localStorage.getItem("oc-server") || $("server").value;
 // The saved model may not be among the initial options, so add it
@@ -1008,6 +1060,7 @@ async function send(resendText) {
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
   aborted = false;
+  ensureAudio();
   addMsg("user", text, Date.now());
   scrollChat(true);
   const wait = addMsg("sys", "応答待ち…");
@@ -1031,16 +1084,19 @@ async function send(resendText) {
     } catch (e) { /* keep the reply as shown */ }
     setStatus("接続済み");
     setReplyTitle(document.hidden ? "応答完了" : "");
+    playNotify("done");
   } catch (e) {
     wait.remove();
     if (aborted) {
       addMsg("sys", "中断しました");
       setStatus("接続済み");
       setReplyTitle(document.hidden ? "中断しました" : "");
+      playNotify("error");
     } else {
       addMsg("sys", "エラー: " + e.message);
       setStatus("エラー", true);
       setReplyTitle(document.hidden ? "エラー" : "");
+      playNotify("error");
     }
   } finally {
     stopReplyTimer();
