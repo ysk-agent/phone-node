@@ -246,7 +246,7 @@
     <button id="toolMenuBtn" title="その他の操作">＋</button>
     <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select>
     <span id="charCount"></span>
-    <button id="abort" disabled>中断</button>
+    <button id="abort" title="Esc キーでも中断できます" disabled>中断</button>
     <button id="send">送信</button>
   </div>
   <div id="toolMenu">
@@ -307,6 +307,7 @@
     <tr><td><kbd>/</kbd></td><td>入力欄へ移動する</td></tr>
     <tr><td><kbd>?</kbd></td><td>この一覧を開く（入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>この一覧を閉じる</td></tr>
+    <tr><td><kbd>Esc</kbd></td><td>応答中の生成を中断する（ドロワーやメニューが開いているときはそちらを閉じる）</td></tr>
   </table>
   <button class="closebtn" id="shortcutClose">閉じる</button>
 </dialog>
@@ -2484,11 +2485,23 @@ document.getElementById("openChatSearch").onclick = () => {
 document.getElementById("chatSearchClose").onclick = () =>
   searchBarEl.classList.remove("open");
 // Ctrl+K への既存の処理（検索欄へのフォーカス）は、隠れている欄
-// では効かないため、捕捉フェーズで先にバーを開く。Esc はドロワーと
-// メニューを閉じる（ダイアログ自体の Esc はダイアログが処理する）。
+// では効かないため、捕捉フェーズで先にバーを開く。Esc は開いて
+// いるものを閉じるのが先で、ドロワー・メニュー・検索バーのどれも
+// 開いていなければ応答中の生成を中断する（中断ボタンと同じ処理）。
+// ショートカット一覧のダイアログが開いているときはダイアログ
+// 自身が Esc を処理するので、中断はしない。応答中でないときは
+// 中断ボタンが無効なので、その判定だけで中断の有無が決まる。
 document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) showSearchBar();
-  if (e.key === "Escape") { closeDrawer(); closeMenu(); }
+  if (e.key === "Escape") {
+    const dialogOpen = document.getElementById("shortcutHelp").open;
+    const hadOpen = drawerEl.classList.contains("open") ||
+      toolMenuEl.classList.contains("open") ||
+      searchBarEl.classList.contains("open");
+    closeDrawer(); closeMenu();
+    searchBarEl.classList.remove("open");
+    if (!dialogOpen && !hadOpen && !$("abort").disabled) abortReply();
+  }
 }, true);
 // セッションを選んだらドロワーを閉じて会話へ戻る。新規作成も同様。
 document.getElementById("sessionList").addEventListener("change", closeDrawer);
