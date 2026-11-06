@@ -55,7 +55,9 @@
   .msg.match, .tool.match { outline: 1px solid #2d5a8f; }
   .msg.current, .tool.current { outline: 2px solid #e8a33d; }
   footer { padding: 10px 12px; background: #1b1b1b; border-top: 1px solid #333;
-           display: flex; gap: 8px; }
+           display: flex; gap: 8px; flex-wrap: wrap; }
+  footer select { background: #222; color: #eee; border: 1px solid #444;
+           border-radius: 6px; padding: 5px 8px; font-size: 13px; max-width: 170px; }
   #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
            padding: 9px; font-size: 14px; resize: none; max-height: 40dvh; overflow-y: auto; }
   #charCount { color: #888; font-size: 12px; align-self: center; white-space: nowrap; }
@@ -83,6 +85,7 @@
   body.light .tool { color: #555; border-color: #999; }
   body.light .tool.err { color: #c00; border-color: #c00; }
   body.light footer { background: #fff; border-color: #ddd; }
+  body.light footer select { background: #fff; color: #222; border-color: #bbb; }
   body.light #input { background: #fff; color: #222; border-color: #bbb; }
   body.light #charCount { color: #666; }
 </style>
@@ -114,6 +117,9 @@
   <button id="send">送信</button>
   <button id="resend" disabled>再送信</button>
   <button id="abort" disabled>中断</button>
+  <select id="snippetList"><option value="">（定型文）</option></select>
+  <button id="saveSnippet">定型文を保存</button>
+  <button id="deleteSnippet">定型文を削除</button>
 </footer>
 <script>
 "use strict";
@@ -982,6 +988,72 @@ $("input").addEventListener("keydown", e => {
   }
 });
 $("input").addEventListener("input", () => { historyIndex = -1; });
+// 定型文: よく使うプロンプトを名前付きで保存し、フッターの
+// 一覧から選んで入力欄へ入れる。保存は最大20件までで、同じ
+// 名前で保存すると上書きする。localStorage に置くので、
+// サーバには触れずブラウザごとに使える。削除は一覧で選んだ
+// ものを「定型文を削除」で消す（確認あり）。
+const SNIPPET_KEY = "oc-snippets";
+const SNIPPET_MAX = 20;
+let snippets = [];
+try { snippets = JSON.parse(localStorage.getItem(SNIPPET_KEY) || "[]"); } catch (e) { snippets = []; }
+if (!Array.isArray(snippets)) snippets = [];
+function saveSnippets() {
+  try { localStorage.setItem(SNIPPET_KEY, JSON.stringify(snippets)); } catch (e) {}
+}
+function renderSnippets() {
+  const el = $("snippetList");
+  el.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "（定型文）";
+  el.appendChild(none);
+  for (const s of snippets) {
+    const o = document.createElement("option");
+    o.value = s.name;
+    o.textContent = s.name;
+    el.appendChild(o);
+  }
+}
+renderSnippets();
+$("saveSnippet").onclick = () => {
+  const text = $("input").value.trim();
+  if (!text) { setStatus("定型文にする文を入力してください", true); return; }
+  const name = prompt("定型文の名前", text.split("\n")[0].slice(0, 20));
+  if (!name) return;
+  const i = snippets.findIndex(s => s.name === name);
+  if (i >= 0) snippets[i].text = text;
+  else {
+    snippets.push({ name, text });
+    if (snippets.length > SNIPPET_MAX) snippets = snippets.slice(-SNIPPET_MAX);
+  }
+  saveSnippets();
+  renderSnippets();
+  $("snippetList").value = name;
+  addMsg("sys", "定型文「" + name + "」を保存しました");
+};
+$("deleteSnippet").onclick = () => {
+  const name = $("snippetList").value;
+  if (!name) { setStatus("削除する定型文を一覧から選んでください", true); return; }
+  if (!confirm("定型文「" + name + "」を削除しますか？")) return;
+  snippets = snippets.filter(s => s.name !== name);
+  saveSnippets();
+  renderSnippets();
+  addMsg("sys", "定型文「" + name + "」を削除しました");
+};
+$("snippetList").onchange = () => {
+  const name = $("snippetList").value;
+  if (!name) return;
+  const s = snippets.find(x => x.name === name);
+  if (!s) return;
+  const cur = $("input").value;
+  $("input").value = cur ? cur + "\n" + s.text : s.text;
+  autoResize();
+  updateCharCount();
+  localStorage.setItem(DRAFT_KEY, $("input").value);
+  $("input").focus();
+  $("snippetList").value = "";
+};
 $("newSession").onclick = async () => {
   try {
     currentId = "";
