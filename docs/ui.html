@@ -237,14 +237,31 @@ function setStatus(text, isErr) {
 // 更新するので、「セッション作成中…」のような一時的な表示を
 // 上書きしない。checkConnection はサーバ欄の変更時にも即座に
 // 走る（次回まで最大30秒待たせないため）。
+// 到達性の確認にかかった往復時間も表示する（「接続済み（123ms）」）。
+// 配置先ごとの回線の速さの目安になる。応答待ちの間は応答時間の
+// 表示が優先されるので、その間はレイテンシの更新をしない。
 let reachable = false;
+let lastLatency = -1;
 async function checkConnection() {
+  const start = performance.now();
   let ok = false;
   try { ok = (await fetch(base() + "/session", { cache: "no-store" })).ok; }
   catch (e) { ok = false; }
-  if (ok === reachable) return;
-  reachable = ok;
-  setStatus(ok ? "接続済み" : "未接続（サーバに到達できません）", !ok);
+  const ms = Math.round(performance.now() - start);
+  if (ok !== reachable) {
+    reachable = ok;
+    lastLatency = ok ? ms : -1;
+    setStatus(ok ? "接続済み（" + ms + "ms）" : "未接続（サーバに到達できません）", !ok);
+    return;
+  }
+  // 到達性に変化なし: 状態欄が接続表示のときだけ、レイテンシが
+  // 100ms以上動いた場合に更新する。一時的な表示を上書きせず、
+  // 小さな揺れで表示がちらつくこともない。
+  if (ok && !pendingId && statusEl.textContent.startsWith("接続済み") &&
+      (lastLatency < 0 || Math.abs(ms - lastLatency) >= 100)) {
+    lastLatency = ms;
+    setStatus("接続済み（" + ms + "ms）");
+  }
 }
 function startMonitor() {
   setInterval(checkConnection, 30000);
@@ -616,7 +633,7 @@ async function refreshList(selectId) {
   allSessions = sessions;
   renderListOptions(selectId);
   reachable = true;
-  setStatus("接続済み");
+  setStatus(lastLatency >= 0 ? "接続済み（" + lastLatency + "ms）" : "接続済み");
 }
 
 async function loadMessages(id) {
