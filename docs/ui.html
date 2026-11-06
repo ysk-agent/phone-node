@@ -303,6 +303,7 @@
     <button id="timeFormatToggle" class="actbtn">時刻表示: 絶対時刻</button>
     <button id="soundToggle" class="actbtn">通知音: オン</button>
     <button id="vibrateToggle" class="actbtn">バイブレーション: オン</button>
+    <button id="autoSpeakToggle" class="actbtn">自動読み上げ: オフ</button>
     <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
     <button id="shortcutBtn" class="actbtn">ショートカット</button>
   </div>
@@ -490,6 +491,40 @@ if ("vibrate" in navigator) {
   };
 } else {
   $("vibrateToggle").style.display = "none";
+}
+// 応答が終わったら自動で読み上げる: 音や振動と同じくタブが隠れて
+// いるときだけで、画面を見ているときは読まずに黙っておく。無料
+// モデルは応答が遅いことが多いため、他の作業をしながら待っている
+// 間に返信を耳で受け取れる。既定はオフで、設定欄のボタンで切り
+// 替え、選択は localStorage に保存する。読み上げは各応答の「読み
+// 上げ」ボタンと同じ仕組み（speakMsg）で、読んでいる途中に送った
+// り中断したりすると止まる。音声合成に対応していないブラウザでは
+// ボタンを出さない。
+const AUTO_SPEAK_KEY = "oc-autospeak";
+let autoSpeakOn = localStorage.getItem(AUTO_SPEAK_KEY) === "on";
+function updateAutoSpeakBtn() {
+  $("autoSpeakToggle").textContent = "自動読み上げ: " + (autoSpeakOn ? "オン" : "オフ");
+}
+function autoSpeakReply() {
+  if (!autoSpeakOn || !document.hidden || !("speechSynthesis" in window)) return;
+  const bubbles = chat.querySelectorAll(".msg.assistant");
+  const div = bubbles[bubbles.length - 1];
+  if (!div) return;
+  const text = (div._rawText ?? div._body.textContent ?? "").trim();
+  if (!text || text === "(テキスト応答なし)") return;
+  const btn = [...div.querySelectorAll("button")].find(b => b.textContent === "読み上げ");
+  if (!btn) return;
+  speakMsg(div, btn);
+}
+if ("speechSynthesis" in window) {
+  updateAutoSpeakBtn();
+  $("autoSpeakToggle").onclick = () => {
+    autoSpeakOn = !autoSpeakOn;
+    try { localStorage.setItem(AUTO_SPEAK_KEY, autoSpeakOn ? "on" : "off"); } catch (e) {}
+    updateAutoSpeakBtn();
+  };
+} else {
+  $("autoSpeakToggle").style.display = "none";
 }
 // 新しいメッセージや逐次表示の更新が来たときに最下部へ追従する
 // かどうかを切り替える。長い会話をさかのぼって読むときは、追従を
@@ -2000,6 +2035,7 @@ async function send(resendText, record = true) {
     setReplyTitle(document.hidden ? "応答完了" : "");
     playNotify("done");
     vibrateNotify("done");
+    autoSpeakReply();
   } catch (e) {
     wait.remove();
     if (aborted) {
