@@ -263,6 +263,7 @@
     <button id="themeToggle" class="actbtn">明るい表示</button>
     <button id="fontSizeToggle" class="actbtn">文字: 標準</button>
     <button id="mdToggle" class="actbtn">表示: Markdown</button>
+    <button id="timeFormatToggle" class="actbtn">時刻表示: 絶対時刻</button>
     <button id="soundToggle" class="actbtn">通知音: オン</button>
     <button id="vibrateToggle" class="actbtn">バイブレーション: オン</button>
     <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
@@ -460,6 +461,43 @@ $("autoScrollToggle").onclick = () => {
   try { localStorage.setItem(SCROLL_KEY, autoScrollOn ? "on" : "off"); } catch (e) {}
   updateAutoScrollBtn();
 };
+// メッセージの時刻表示の切り替え: 絶対時刻（M/D HH:MM、既定）と
+// 相対時刻（「3分前」「2時間前」）を切り替える。最近のやり取りは
+// 相対のほうが「いつ」か直感的に分かるが、記録として残す書き出し
+// やセッション一覧は絶対時刻のまま。選択は localStorage に保存し、
+// 切り替えると表示中のメッセージの時刻も描き直す。相対表示の間は
+// 1分ごとに描き直し、「たった今」がいつまでも残らないようにする。
+const TIME_FMT_KEY = "oc-timefmt";
+let relativeTime = localStorage.getItem(TIME_FMT_KEY) === "relative";
+function fmtRelativeTime(ms) {
+  const diff = Date.now() - ms;
+  if (diff < 60000) return "たった今";
+  if (diff < 3600000) return Math.floor(diff / 60000) + "分前";
+  if (diff < 86400000) return Math.floor(diff / 3600000) + "時間前";
+  if (diff < 7 * 86400000) return Math.floor(diff / 86400000) + "日前";
+  return fmtTime(ms);
+}
+function fmtMsgTime(ms) {
+  return relativeTime ? fmtRelativeTime(ms) : fmtTime(ms);
+}
+function updateTimeFormatBtn() {
+  $("timeFormatToggle").textContent = "時刻表示: " + (relativeTime ? "相対時刻" : "絶対時刻");
+}
+function refreshMsgTimes() {
+  for (const div of chat.querySelectorAll(".msg")) {
+    if (!div._timeMs) continue;
+    const t = div.querySelector(".msgtime");
+    if (t) t.textContent = fmtMsgTime(div._timeMs);
+  }
+}
+updateTimeFormatBtn();
+$("timeFormatToggle").onclick = () => {
+  relativeTime = !relativeTime;
+  try { localStorage.setItem(TIME_FMT_KEY, relativeTime ? "relative" : "absolute"); } catch (e) {}
+  updateTimeFormatBtn();
+  refreshMsgTimes();
+};
+setInterval(() => { if (relativeTime) refreshMsgTimes(); }, 60000);
 $("server").value = localStorage.getItem("oc-server") || $("server").value;
 // 接続先の履歴: 場所ごとに置いたノード（自宅・コワーキングなど）は
 // サーバのアドレスが違うため、使った接続先を localStorage に最大
@@ -968,9 +1006,12 @@ function speakMsg(div, btn) {
 }
 // The time a message was created, shown as a small muted line at
 // the bottom of its bubble. fmtTime (M/D HH:MM) is shared with the
-// session list; a message without a stored time shows none.
+// session list; a message without a stored time shows none. The
+// bubble keeps its own timestamp (div._timeMs) so the time-format
+// toggle can redraw it without reloading the messages.
 function setMsgTime(div, ms) {
   if (!ms) return;
+  div._timeMs = ms;
   let t = div.querySelector(".msgtime");
   if (!t) {
     t = document.createElement("div");
@@ -980,7 +1021,7 @@ function setMsgTime(div, ms) {
     if (div._foot) div._foot.insertBefore(t, div._foot.firstChild);
     else div.appendChild(t);
   }
-  t.textContent = fmtTime(ms);
+  t.textContent = fmtMsgTime(ms);
 }
 function msgTime(m) {
   return m && m.info && m.info.time ? m.info.time.created : 0;
