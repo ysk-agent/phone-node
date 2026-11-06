@@ -252,7 +252,6 @@
     <div class="drawerRow"><input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"><span id="sessionCount"></span></div>
     <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="pinOnlyToggle">表示: すべて</button><button id="refreshList">一覧更新</button></div>
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
-    <button id="copyLink" class="actbtn">リンクをコピー</button>
     <button id="rename" class="actbtn">名前変更</button>
     <button id="pinSession" class="actbtn">ピン留め</button>
     <button id="toggleAllFold" class="actbtn" disabled>すべて展開</button>
@@ -1496,7 +1495,6 @@ async function selectSession(id, load) {
   const opt = listEl.selectedOptions[0];
   $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0].replace(/^📌 /, "") : "(無題)";
   $("curId").textContent = id;
-  updateShareUrl();
   if (load) await loadMessages(id);
 }
 
@@ -2123,7 +2121,6 @@ $("deleteSession").onclick = async () => {
     setMsgCount(0);
     $("curTitle").textContent = "（セッション未選択）";
     $("curId").textContent = "";
-    updateShareUrl();
     await refreshList();
     addMsg("sys", "セッションを削除しました");
     applyChatSearch();
@@ -2142,36 +2139,6 @@ $("copySessionId").onclick = async () => {
   btn.textContent = ok ? "コピー済み" : "コピー失敗";
   setTimeout(() => { btn.textContent = "IDをコピー"; }, 1500);
 };
-// 会話へのリンク: このセッションを開いた状態の URL を作り、
-// 共有やブックマークに使えるようにする。URL にはサーバと
-// セッション ID だけを入れ、会話の中身は含めない。セッションを
-// 選ぶたびに history.replaceState で書き換えるので、表示中の
-// 会話と URL はいつも一致する。開いたときに ?server= と
-// ?session= があれば、そちらを優先して開く。
-function updateShareUrl() {
-  try {
-    const params = new URLSearchParams();
-    params.set("server", base());
-    if (currentId) params.set("session", currentId);
-    history.replaceState(null, "", "?" + params.toString());
-  } catch (e) { /* URL が作れなくても会話には影響しない */ }
-}
-$("copyLink").onclick = async () => {
-  updateShareUrl();
-  const btn = $("copyLink");
-  const ok = await copyText(location.href);
-  btn.textContent = ok ? "リンクをコピー済み" : "コピー失敗";
-  setTimeout(() => { btn.textContent = "リンクをコピー"; }, 1500);
-};
-function readShareParams() {
-  let params;
-  try { params = new URLSearchParams(location.search); } catch (e) { return {}; }
-  const server = params.get("server") || "";
-  return {
-    server: /^https?:\/\//.test(server) ? server : "",
-    session: params.get("session") || "",
-  };
-}
 // Export the current conversation as a Markdown file. The file is
 // built in the browser from the session's stored messages (the same
 // GET /session/{id}/message used to load history), so no server
@@ -2312,7 +2279,6 @@ async function switchServerSession() {
       $("curTitle").textContent = "（セッション未選択）";
       $("curId").textContent = "";
       updatePinBtn();
-      updateShareUrl();
       applyChatSearch();
       updateFoldAllBtn();
     }
@@ -2395,24 +2361,15 @@ document.addEventListener("keydown", e => {
 // stream, fetch the model list and the session list and, if the
 // last-used session is still there, reopen it with its history.
 (async () => {
-  // リンクで開かれたとき: ?server= があればそのサーバを接続先に
-  // し、?session= があればそのセッションを開く。保存してある
-  // 最後のセッションよりリンクを優先する。
-  const shared = readShareParams();
-  if (shared.server) {
-    $("server").value = shared.server;
-    try { localStorage.setItem("oc-server", shared.server); } catch (e) {}
-    rememberServer(shared.server);
-  }
   startMonitor();
   connectEvents();
   try { await refreshModels(); } catch (e) { /* keep the saved model option */ }
   try {
     await refreshList();
-    const last = shared.session || lastByServer[base()] || localStorage.getItem("oc-last-session");
+    const last = lastByServer[base()] || localStorage.getItem("oc-last-session");
     if (last && [...listEl.options].some(o => o.value === last)) {
       await selectSession(last, true);
-    } else updateShareUrl();
+    }
   } catch (e) { setStatus("エラー: " + e.message, true); }
 })();
 </script>
