@@ -105,7 +105,7 @@
   <button id="copyChat">会話をコピー</button>
   <button id="refreshList">一覧更新</button>
 </header>
-<div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><span id="curCount"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button></div>
+<div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><span id="curCount"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="toggleAllFold" class="copybtn" disabled>すべて展開</button></div>
 <main id="chat"></main>
 <button id="toLatest">最新へ ↓</button>
 <footer>
@@ -733,6 +733,7 @@ async function loadMessages(id) {
   setMsgCount(messages.length);
   scrollChat(true);
   applyChatSearch();
+  updateFoldAllBtn();
 }
 
 async function selectSession(id, load) {
@@ -900,6 +901,7 @@ async function send(resendText) {
     $("abort").disabled = true;
     $("deleteSession").disabled = false;
     applyChatSearch();
+    updateFoldAllBtn();
   }
 }
 
@@ -988,6 +990,7 @@ $("newSession").onclick = async () => {
     const id = await ensureSession();
     addMsg("sys", "新しいセッションを開始しました");
     applyChatSearch();
+    updateFoldAllBtn();
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
 $("refreshList").onclick = async () => {
@@ -1044,6 +1047,34 @@ function jumpChatMatch(dir) {
 $("chatSearchPrev").onclick = () => jumpChatMatch(-1);
 $("chatSearchNext").onclick = () => jumpChatMatch(1);
 $("chatSearch").addEventListener("input", applyChatSearch);
+// 長いメッセージをすべて展開／折りたたむ: 長い会話では折りたたみ
+// 対象のメッセージが何件も出るため、1件ずつ開く代わりにまとめて
+// 切り替えられるようにする。折りたたまれているものが1件でも
+// あればすべて展開し、なければすべて折りたたむ。ボタンは対象が
+// ない間は無効で、表示は今の状態に合わせて変わる。
+function foldableMsgs() {
+  return [...chat.querySelectorAll(".msg")].filter(d =>
+    d._foldBtn && d._foldBtn.style.display !== "none" && !d._streaming);
+}
+function setFolded(div, folded) {
+  div._folded = folded;
+  div.classList.toggle("collapsed", folded);
+  div._foldBtn.textContent = folded ? "続きを表示" : "折りたたむ";
+}
+function updateFoldAllBtn() {
+  const msgs = foldableMsgs();
+  const anyFolded = msgs.some(d => d._folded);
+  const btn = $("toggleAllFold");
+  btn.textContent = anyFolded ? "すべて展開" : "すべて折りたたむ";
+  btn.disabled = !msgs.length;
+}
+$("toggleAllFold").onclick = () => {
+  const msgs = foldableMsgs();
+  if (!msgs.length) return;
+  const anyFolded = msgs.some(d => d._folded);
+  for (const d of msgs) setFolded(d, !anyFolded);
+  updateFoldAllBtn();
+};
 // 最新へボタン: 会話をさかのぼって読んでいるときだけ表示し、
 // 押すと最新のメッセージまでなめらかに戻る。最下部に近い
 // （120px 以内）ときは隠すので、返信中の自動スクロールを
@@ -1100,6 +1131,7 @@ $("deleteSession").onclick = async () => {
     await refreshList();
     addMsg("sys", "セッションを削除しました");
     applyChatSearch();
+    updateFoldAllBtn();
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
 // Copy the current session's id, so it can be pasted into API
