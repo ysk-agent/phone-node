@@ -233,8 +233,8 @@ function startMonitor() {
 }
 // A message bubble keeps its text in a child node, so the time
 // line below it survives streaming updates that rewrite the text.
-// An assistant bubble also gets a footer row (kept in _foot) with
-// the time line and a copy button; the time is inserted at the
+// An assistant or user bubble also gets a footer row (kept in _foot)
+// with the time line and a copy button; the time is inserted at the
 // foot's start when it becomes known, so streaming updates that
 // set the time later keep the same layout.
 function addMsg(cls, text, ms) {
@@ -244,7 +244,7 @@ function addMsg(cls, text, ms) {
   body.textContent = text;
   div.appendChild(body);
   div._body = body;
-  if (cls === "assistant") {
+  if (cls === "assistant" || cls === "user") {
     const foot = document.createElement("div");
     foot.className = "msgfoot";
     div.appendChild(foot);
@@ -261,7 +261,7 @@ function addMsg(cls, text, ms) {
   return div;
 }
 function setMsgText(div, text) { div._body.textContent = text; }
-// Copy an assistant bubble's text to the clipboard. Uses the
+// Copy a bubble's text to the clipboard. Uses the
 // Clipboard API, with a hidden textarea + execCommand fallback for
 // browsers without it, and the button briefly shows the result.
 async function copyMsg(div, btn) {
@@ -294,8 +294,8 @@ function setMsgTime(div, ms) {
   if (!t) {
     t = document.createElement("div");
     t.className = "msgtime";
-    // Into the assistant bubble's footer (before the copy button)
-    // when it has one, otherwise directly under the text.
+    // Into the bubble's footer (before the copy button) when it
+    // has one, otherwise directly under the text.
     if (div._foot) div._foot.insertBefore(t, div._foot.firstChild);
     else div.appendChild(t);
   }
