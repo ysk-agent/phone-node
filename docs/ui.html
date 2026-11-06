@@ -912,6 +912,14 @@ function addMsg(cls, text, ms) {
     };
     foot.insertBefore(foldBtn, btn);
     div._foldBtn = foldBtn;
+    // メッセージの引用ボタン。長い応答の一部に触れて続きを聞く
+    // とき、文をコピーして貼る手間が省ける。押すと quoteMsg が
+    // 入力欄へ引用を入れる（送信はしない）。
+    const quoteBtn = document.createElement("button");
+    quoteBtn.className = "copybtn";
+    quoteBtn.textContent = "引用";
+    quoteBtn.onclick = () => quoteMsg(div, quoteBtn);
+    foot.insertBefore(quoteBtn, btn);
   }
   if (ms) setMsgTime(div, ms);
   chat.appendChild(div);
@@ -1026,6 +1034,24 @@ async function copyMsg(div, btn) {
   const ok = await copyText(div._rawText ?? div._body.textContent);
   btn.textContent = ok ? "コピー済み" : "コピー失敗";
   setTimeout(() => { btn.textContent = "コピー"; }, 1500);
+}
+// Quote a bubble's text into the input box, as Markdown quote lines
+// (each line prefixed with "> "). Asking a follow-up about part of
+// a long reply no longer needs copying and pasting the text by hand.
+// Appended after any existing draft, separated by a blank line, and
+// saved as the draft (so it survives a reload); nothing is sent.
+function quoteMsg(div, btn) {
+  const text = (div._rawText ?? div._body.textContent ?? "").trim();
+  if (!text) return;
+  const quoted = text.split("\n").map(line => "> " + line).join("\n");
+  const cur = $("input").value;
+  $("input").value = cur ? cur.replace(/\n*$/, "") + "\n\n" + quoted + "\n" : quoted + "\n";
+  autoResize();
+  updateCharCount();
+  saveDraft();
+  $("input").focus();
+  btn.textContent = "引用済み";
+  setTimeout(() => { btn.textContent = "引用"; }, 1500);
 }
 // Read an assistant reply aloud with the browser's speech
 // synthesis (Japanese). The button toggles to "停止" while its
