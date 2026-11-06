@@ -348,34 +348,17 @@
 // (version, storage, internals) is assumed.
 const $ = id => document.getElementById(id);
 const chat = $("chat"), statusEl = $("status"), listEl = $("sessionList");
-// 表示テーマの切り替え: 暗い表示と明るい表示をドロワーのボタンで
-// 切り替え、選択は localStorage に保存して次回も使う。保存された
-// 選択がない間は端末の設定（prefers-color-scheme）に合わせ、
-// 端末の設定が変われば追従する。ボタンで切り替えた時点で手動の
-// 選択が保存され、追従は止まる。明るい表示の配色は body.light
-// の CSS が決める。
+// 表示テーマの切り替え: 暗い表示（既定）と明るい表示をヘッダーの
+// ボタンで切り替え、選択は localStorage に保存して次回も使う。
+// 明るい表示の配色は body.light の CSS が決める。
 const THEME_KEY = "oc-theme";
 function applyTheme(light) {
   document.body.classList.toggle("light", light);
   $("themeToggle").textContent = light ? "暗い表示" : "明るい表示";
 }
-let themeAuto = localStorage.getItem(THEME_KEY) === null;
-function applySystemTheme() {
-  applyTheme(window.matchMedia &&
-    window.matchMedia("(prefers-color-scheme: light)").matches);
-}
-if (themeAuto) {
-  applySystemTheme();
-  if (window.matchMedia) {
-    window.matchMedia("(prefers-color-scheme: light)")
-      .addEventListener("change", () => { if (themeAuto) applySystemTheme(); });
-  }
-} else {
-  applyTheme(localStorage.getItem(THEME_KEY) === "light");
-}
+applyTheme(localStorage.getItem(THEME_KEY) === "light");
 $("themeToggle").onclick = () => {
   const light = !document.body.classList.contains("light");
-  themeAuto = false;
   try { localStorage.setItem(THEME_KEY, light ? "light" : "dark"); } catch (e) {}
   applyTheme(light);
 };
