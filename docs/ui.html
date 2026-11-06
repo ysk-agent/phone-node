@@ -201,6 +201,7 @@
   <span id="charCount"></span>
   <button id="send">送信</button>
   <button id="resend" disabled>再送信</button>
+  <button id="editResend">編集して再送</button>
   <button id="continueReply" disabled>続きを生成</button>
   <button id="clearInput">入力をクリア</button>
   <button id="abort" disabled>中断</button>
@@ -1366,6 +1367,25 @@ async function send(resendText, record = true) {
 
 $("send").onclick = () => send();
 $("resend").onclick = () => { if (lastSentText) send(lastSentText); };
+// 直前のユーザーメッセージを入力欄に戻して編集してから再送する:
+// 再送信は同じ文をそのまま送るが、文を少し直したいときは入力欄に
+// 戻すほうが早い。会話に表示されている最後のユーザーメッセージを
+// 対象にするので、他のブラウザで送った文も編集できる。入力欄の
+// 下書きとして保存されるので、ページを開き直しても残る。送信は
+// しないので、直してから Enter で送る。ユーザーメッセージが
+// なければ何もしない。
+$("editResend").onclick = () => {
+  const users = chat.querySelectorAll(".msg.user");
+  const last = users[users.length - 1];
+  if (!last) return;
+  const text = last._rawText ?? last._body.textContent;
+  if (!text) return;
+  $("input").value = text;
+  autoResize();
+  updateCharCount();
+  try { localStorage.setItem(DRAFT_KEY, text); } catch (e) {}
+  $("input").focus();
+};
 // 応答の続きを生成: 応答が途中で切れたとき、「続けてください」を
 // 送って続きを出させる。入力欄の文は使わず、送信履歴と再送信の
 // 対象にも触れない。セッション未選択のときは送る相手がないので
