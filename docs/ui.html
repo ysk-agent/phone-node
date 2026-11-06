@@ -262,6 +262,8 @@
     <select id="snippetList"><option value="">（定型文）</option></select>
     <button id="saveSnippet">定型文を保存</button>
     <button id="deleteSnippet">定型文を削除</button>
+    <div class="menuLabel">送信履歴</div>
+    <select id="historyList"><option value="">（送信履歴）</option></select>
   </div>
 </div>
 <div id="scrim"></div>
@@ -308,7 +310,7 @@
     <tr><td><kbd>Enter</kbd></td><td>プロンプトを送信する（送信キーが Enter のとき）</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>プロンプトを送信する（送信キーが Ctrl+Enter のとき）</td></tr>
     <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>入力欄で改行する（送信キーが Enter のとき）</td></tr>
-    <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>入力欄で送信したプロンプトの履歴をたどる</td></tr>
+    <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>入力欄で送信したプロンプトの履歴をたどる（＋メニューの「送信履歴」から一覧で選ぶこともできます）</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>会話内検索へ移動する</td></tr>
     <tr><td><kbd>/</kbd></td><td>入力欄へ移動する</td></tr>
     <tr><td><kbd>N</kbd></td><td>新しいセッションを開始する（入力欄以外で押したとき）</td></tr>
@@ -2202,6 +2204,35 @@ function saveHistory(text) {
   if (history.length > HISTORY_MAX) history = history.slice(-HISTORY_MAX);
   try { localStorage.setItem(HISTORY_KEY, JSON.stringify(history)); } catch (e) {}
   historyIndex = -1;
+  renderHistoryList();
+}
+// 送信履歴の一覧: ↑↓キーでたどるのと同じ history を、＋メニュー
+// の一覧から選べるようにする。キー操作では何件もたどらないと
+// 目的の文に届かないが、一覧なら見出しで選べる。新しいものから
+// 最大10件まで出し、見出しは1行目を40文字までに切る。選ぶと
+// 入力欄へ入れ（↑↓で呼んだときと同じく置き換える）、下書きとして
+// 保存する。送信のたびに描き直すので、送ったばかりの文も選べる。
+const HISTORY_LIST_MAX = 10;
+const HISTORY_LABEL_MAX = 40;
+function renderHistoryList() {
+  const el = $("historyList");
+  if (!el) return;
+  el.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "（送信履歴）";
+  el.appendChild(none);
+  for (let i = 0; i < Math.min(history.length, HISTORY_LIST_MAX); i++) {
+    const text = history[history.length - 1 - i];
+    const first = text.split("\n")[0];
+    const label = [...first].length > HISTORY_LABEL_MAX
+      ? [...first].slice(0, HISTORY_LABEL_MAX).join("") + "…"
+      : first;
+    const o = document.createElement("option");
+    o.value = String(i);
+    o.textContent = label;
+    el.appendChild(o);
+  }
 }
 function showHistory(i) {
   historyIndex = i;
@@ -2259,6 +2290,22 @@ function renderSnippets() {
   }
 }
 renderSnippets();
+renderHistoryList();
+$("historyList").onchange = () => {
+  const v = $("historyList").value;
+  if (v === "") return;
+  const text = history[history.length - 1 - Number(v)];
+  if (!text) return;
+  // ↑↓で呼んだときと同じく入力欄を置き換え、下書きとして保存
+  // する（送らずに編集できる）。履歴たどり中なら解除する。
+  historyIndex = -1;
+  $("input").value = text;
+  autoResize();
+  updateCharCount();
+  saveDraft();
+  $("input").focus();
+  $("historyList").value = "";
+};
 $("saveSnippet").onclick = () => {
   const text = $("input").value.trim();
   if (!text) { setStatus("定型文にする文を入力してください", true); return; }
