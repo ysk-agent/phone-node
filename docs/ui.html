@@ -170,8 +170,9 @@
 <dialog id="shortcutHelp">
   <h2>キーボードショートカット</h2>
   <table>
-    <tr><td><kbd>Enter</kbd></td><td>プロンプトを送信する</td></tr>
-    <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>入力欄で改行する</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>プロンプトを送信する（送信キーが Enter のとき）</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>プロンプトを送信する（送信キーが Ctrl+Enter のとき）</td></tr>
+    <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>入力欄で改行する（送信キーが Enter のとき）</td></tr>
     <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>入力欄で送信したプロンプトの履歴をたどる</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>会話内検索へ移動する</td></tr>
     <tr><td><kbd>?</kbd></td><td>この一覧を開く（入力欄以外で押したとき）</td></tr>
@@ -185,6 +186,7 @@
   <button id="send">送信</button>
   <button id="resend" disabled>再送信</button>
   <button id="abort" disabled>中断</button>
+  <button id="enterModeToggle">送信キー: Enter</button>
   <select id="snippetList"><option value="">（定型文）</option></select>
   <button id="saveSnippet">定型文を保存</button>
   <button id="deleteSnippet">定型文を削除</button>
@@ -1222,8 +1224,30 @@ async function send(resendText) {
 $("send").onclick = () => send();
 $("resend").onclick = () => { if (lastSentText) send(lastSentText); };
 $("abort").onclick = abortReply;
+// 送信キーの切り替え: Enter で送信するか、Ctrl+Enter で送信する
+// かをフッターのボタンで切り替える。長いプロンプトを書くときは
+// Enter で改行できるほうが書きやすい。選択は localStorage に保存
+// し、入力欄の説明文とショートカット一覧の表示もそれに合わせる。
+// 送信キーが Ctrl+Enter のときは Enter は改行のままになる。
+const ENTER_KEY = "oc-enter-mode";
+let enterMode = localStorage.getItem(ENTER_KEY) === "ctrl" ? "ctrl" : "enter";
+function applyEnterMode() {
+  $("enterModeToggle").textContent = enterMode === "ctrl" ? "送信キー: Ctrl+Enter" : "送信キー: Enter";
+  $("input").placeholder = enterMode === "ctrl"
+    ? "プロンプトを入力（Ctrl+Enter で送信、Enter で改行）"
+    : "プロンプトを入力（Enter で送信、Shift+Enter で改行）";
+}
+applyEnterMode();
+$("enterModeToggle").onclick = () => {
+  enterMode = enterMode === "ctrl" ? "enter" : "ctrl";
+  try { localStorage.setItem(ENTER_KEY, enterMode); } catch (e) {}
+  applyEnterMode();
+};
 $("input").addEventListener("keydown", e => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+  if (e.key !== "Enter") return;
+  if (enterMode === "ctrl") {
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); send(); }
+  } else if (!e.shiftKey) { e.preventDefault(); send(); }
 });
 // 入力欄の改善: テキストエリアは内容に合わせて高さを伸ばし
 // （画面の4割まで）、未送信の下書きは localStorage に保存して
