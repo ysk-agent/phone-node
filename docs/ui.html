@@ -73,6 +73,7 @@
   <label>検索 <input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"></label>
   <button id="newSession">新規</button>
   <button id="rename">名前変更</button>
+  <button id="pinSession">ピン留め</button>
   <button id="deleteSession">削除</button>
   <button id="exportMd">書き出し</button>
   <button id="refreshList">一覧更新</button>
@@ -595,11 +596,28 @@ async function refreshModels() {
   localStorage.setItem("oc-model", modelEl.value);
 }
 
+// セッションのピン留め: よく使う会話を一覧の先頭に固定する。
+// ピンはブラウザごとに localStorage に保存し、サーバには触れない。
+// 削除したセッションのピンは残っても害はないが、削除時に外す。
+const PINNED_KEY = "oc-pinned";
+let pinnedIds = [];
+try { pinnedIds = JSON.parse(localStorage.getItem(PINNED_KEY) || "[]"); } catch (e) { pinnedIds = []; }
+if (!Array.isArray(pinnedIds)) pinnedIds = [];
+function savePinned() {
+  try { localStorage.setItem(PINNED_KEY, JSON.stringify(pinnedIds)); } catch (e) {}
+}
+function isPinned(id) { return pinnedIds.includes(id); }
+function updatePinBtn() {
+  $("pinSession").textContent = isPinned(currentId) ? "ピン解除" : "ピン留め";
+  $("pinSession").disabled = !currentId;
+}
+
 // Rebuild the session dropdown from allSessions, keeping only the
 // sessions whose title or id contains the search box text (matched
 // case-insensitively). The selected session is always shown, so
 // filtering never loses the current selection or a just-created
-// session passed as selectedId.
+// session passed as selectedId. Pinned sessions come first (in
+// their updated order), with a 📌 mark on their titles.
 function renderListOptions(selectedId) {
   const want = selectedId ?? currentId;
   const q = $("sessionSearch").value.trim().toLowerCase();
@@ -608,15 +626,18 @@ function renderListOptions(selectedId) {
   none.value = "";
   none.textContent = "（セッション一覧）";
   listEl.appendChild(none);
-  for (const s of allSessions) {
+  const sorted = [...allSessions].sort((a, b) =>
+    (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0));
+  for (const s of sorted) {
     if (q && s.id !== want &&
         !(s.title || "").toLowerCase().includes(q) &&
         !s.id.toLowerCase().includes(q)) continue;
     const o = document.createElement("option");
     o.value = s.id;
-    o.textContent = (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
+    o.textContent = (isPinned(s.id) ? "📌 " : "") + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
     listEl.appendChild(o);
   }
+  updatePinBtn();
   if (want && [...listEl.options].some(o => o.value === want)) {
     listEl.value = want;
     const cur = allSessions.find(s => s.id === want);
@@ -655,7 +676,7 @@ async function selectSession(id, load) {
   localStorage.setItem("oc-last-session", id);
   listEl.value = id;
   const opt = listEl.selectedOptions[0];
-  $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0] : "(無題)";
+  $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0].replace(/^📌 /, "") : "(無題)";
   $("curId").textContent = id;
   if (load) await loadMessages(id);
 }
@@ -938,6 +959,16 @@ function updateToLatest() {
 }
 chat.addEventListener("scroll", updateToLatest);
 toLatestBtn.onclick = () => chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
+// Pin or unpin the current session. The list is rebuilt so the
+// session moves to (or out of) the pinned group at the top; the
+// button label follows the new state.
+$("pinSession").onclick = () => {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  if (isPinned(currentId)) pinnedIds = pinnedIds.filter(id => id !== currentId);
+  else pinnedIds.push(currentId);
+  savePinned();
+  renderListOptions();
+};
 $("rename").onclick = async () => {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
   const title = prompt("新しいタイトル", $("curTitle").textContent);
@@ -961,6 +992,8 @@ $("deleteSession").onclick = async () => {
   if (!confirm("セッション「" + title + "」を削除しますか？\n会話の履歴もすべて消えます。")) return;
   try {
     await api("/session/" + encodeURIComponent(currentId), { method: "DELETE" });
+    pinnedIds = pinnedIds.filter(id => id !== currentId);
+    savePinned();
     currentId = "";
     localStorage.removeItem("oc-last-session");
     chat.innerHTML = "";
