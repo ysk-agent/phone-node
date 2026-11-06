@@ -245,7 +245,7 @@
     <h2>セッション</h2>
     <select id="sessionList"><option value="">（セッション一覧）</option></select>
     <div class="drawerRow"><input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"><span id="sessionCount"></span></div>
-    <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="refreshList">一覧更新</button></div>
+    <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="pinOnlyToggle">表示: すべて</button><button id="refreshList">一覧更新</button></div>
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
     <button id="rename" class="actbtn">名前変更</button>
     <button id="pinSession" class="actbtn">ピン留め</button>
@@ -1280,9 +1280,27 @@ $("sortSessions").onclick = () => {
 };
 updateSortBtn();
 
+// ピン留めしたセッションだけの一覧表示: ピン留めした会話が増えて
+// くると一覧が長くなるため、ピンのものだけに絞って切り替えられる
+// ようにする。並び替えと同じく localStorage に保存し、次回も使う。
+// 絞り込み中でも開いているセッションは一覧に残す（検索と同じ扱い）。
+const PIN_ONLY_KEY = "oc-pin-only";
+let pinOnly = localStorage.getItem(PIN_ONLY_KEY) === "on";
+function updatePinOnlyBtn() {
+  $("pinOnlyToggle").textContent = pinOnly ? "表示: ピンのみ" : "表示: すべて";
+}
+$("pinOnlyToggle").onclick = () => {
+  pinOnly = !pinOnly;
+  try { localStorage.setItem(PIN_ONLY_KEY, pinOnly ? "on" : "off"); } catch (e) {}
+  updatePinOnlyBtn();
+  renderListOptions();
+};
+updatePinOnlyBtn();
+
 // Rebuild the session dropdown from allSessions, keeping only the
 // sessions whose title or id contains the search box text (matched
-// case-insensitively). The selected session is always shown, so
+// case-insensitively), and, while pin-only display is on, only the
+// pinned ones. The selected session is always shown, so
 // filtering never loses the current selection or a just-created
 // session passed as selectedId. Pinned sessions come first (in the
 // chosen sort order), with a 📌 mark on their titles. The count
@@ -1305,6 +1323,7 @@ function renderListOptions(selectedId) {
     if (q && s.id !== want &&
         !(s.title || "").toLowerCase().includes(q) &&
         !s.id.toLowerCase().includes(q)) continue;
+    if (pinOnly && s.id !== want && !isPinned(s.id)) continue;
     const o = document.createElement("option");
     o.value = s.id;
     o.textContent = (isPinned(s.id) ? "📌 " : "") + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
