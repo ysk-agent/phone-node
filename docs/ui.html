@@ -1568,9 +1568,7 @@ async function loadMessages(id) {
 }
 
 async function selectSession(id, load) {
-  saveDraft();
   currentId = id;
-  loadDraftFor(id);
   updateCopyIdBtn();
   $("continueReply").disabled = !id;
   applySessionModel(id);
@@ -1682,7 +1680,7 @@ async function send(resendText, record = true) {
   }
   if (resendText === undefined) {
     $("input").value = "";
-    localStorage.removeItem(draftKey(currentId));
+    localStorage.removeItem("oc-draft");
     autoResize();
     updateCharCount();
   }
@@ -1776,7 +1774,7 @@ $("editResend").onclick = () => {
   $("input").value = text;
   autoResize();
   updateCharCount();
-  saveDraft();
+  try { localStorage.setItem(DRAFT_KEY, text); } catch (e) {}
   $("input").focus();
 };
 // 応答の続きを生成: 応答が途中で切れたとき、「続けてください」を
@@ -1789,7 +1787,7 @@ $("continueReply").onclick = () => { if (currentId) send("続けてください"
 // 直しても復元されない。送信履歴には触れない。
 $("clearInput").onclick = () => {
   $("input").value = "";
-  localStorage.removeItem(draftKey(currentId));
+  localStorage.removeItem(DRAFT_KEY);
   historyIndex = -1;
   autoResize();
   updateCharCount();
@@ -1828,28 +1826,7 @@ $("input").addEventListener("keydown", e => {
 // 入力欄の改善: テキストエリアは内容に合わせて高さを伸ばし
 // （画面の4割まで）、未送信の下書きは localStorage に保存して
 // ページ再表示時に復元する。送信時に下書きは消え、高さも戻る。
-// 下書きはセッションごとに保持する: 会話を切り替えても、書きかけの
-// 文はそのセッションに戻れば残っている。セッション未選択のときは
-// 従来のキーを使う。古い版で保存された全体の下書きは、最初に開いた
-// セッションへ移す。
 const DRAFT_KEY = "oc-draft";
-function draftKey(id) { return id ? "oc-draft-" + id : DRAFT_KEY; }
-function saveDraft() {
-  try { localStorage.setItem(draftKey(currentId), $("input").value); } catch (e) {}
-}
-function loadDraftFor(id) {
-  let draft = null;
-  try { draft = localStorage.getItem(draftKey(id)); } catch (e) {}
-  if (draft === null && id) {
-    try {
-      draft = localStorage.getItem(DRAFT_KEY);
-      if (draft) localStorage.removeItem(DRAFT_KEY);
-    } catch (e) {}
-  }
-  $("input").value = draft || "";
-  autoResize();
-  updateCharCount();
-}
 // 入力中のプロンプトの文字数をフッターに表示する。空のときは
 // 表示しない。[...value] で数えるので絵文字も1文字になる。
 function updateCharCount() {
@@ -1865,7 +1842,7 @@ function autoResize() {
 $("input").addEventListener("input", () => {
   autoResize();
   updateCharCount();
-  saveDraft();
+  localStorage.setItem(DRAFT_KEY, $("input").value);
 });
 const savedDraft = localStorage.getItem(DRAFT_KEY);
 if (savedDraft) { $("input").value = savedDraft; autoResize(); updateCharCount(); }
@@ -1909,7 +1886,7 @@ $("input").addEventListener("drop", async e => {
     inputEl.setSelectionRange(pos, pos);
     autoResize();
     updateCharCount();
-    saveDraft();
+    try { localStorage.setItem(DRAFT_KEY, inputEl.value); } catch (_) {}
     addMsg("sys", "ファイル " + texts.length + "件の内容を入力欄に入れました" +
       (skipped ? "（" + skipped + "件はテキストファイルではないため入れませんでした）" : ""));
   } else if (skipped) {
@@ -2218,7 +2195,6 @@ $("deleteSession").onclick = async () => {
     savePinned();
     delete modelBySession[currentId];
     saveModelBySession();
-    try { localStorage.removeItem(draftKey(currentId)); } catch (e) {}
     delete lastByServer[base()];
     saveLastByServer();
     currentId = "";
