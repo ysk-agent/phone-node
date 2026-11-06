@@ -118,6 +118,27 @@ let allSessions = [];
 let pendingId = "";
 let aborted = false;
 
+// 応答にかかった時間の表示: 送信から応答完了までの経過秒数を
+// ステータス欄に1秒ごとに表示し、完了後は使用量の行に残す。
+// 無料モデルは応答が遅いことがあるため、待っている間の目安になる。
+let replyStart = 0;
+let replyTimer = null;
+function startReplyTimer() {
+  stopReplyTimer();
+  replyStart = Date.now();
+  setStatus("応答中… 0秒");
+  replyTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - replyStart) / 1000);
+    setStatus("応答中… " + s + "秒");
+  }, 1000);
+}
+function stopReplyTimer() {
+  if (replyTimer) { clearInterval(replyTimer); replyTimer = null; }
+}
+function replySeconds() {
+  return replyStart ? Math.round((Date.now() - replyStart) / 1000) : null;
+}
+
 // Streaming state for the reply currently being awaited. The server
 // pushes the assistant's text as message.part.updated events (each
 // carrying the part's full current text) and marks the end with
@@ -382,8 +403,9 @@ function usageParts(info) {
   if (typeof info.cost === "number" && info.cost > 0) parts.push("コスト " + fmtCost(info.cost));
   return parts;
 }
-function addUsage(info) {
+function addUsage(info, seconds) {
   const parts = usageParts(info);
+  if (typeof seconds === "number" && seconds >= 0) parts.push("応答時間 " + seconds + "秒");
   if (!parts.length) return;
   const div = document.createElement("div");
   div.className = "usage";
@@ -543,7 +565,7 @@ async function syncReply(id, text, wait) {
   });
   wait.remove();
   const shown = renderMessage(reply);
-  addUsage(reply.info);
+  addUsage(reply.info, replySeconds());
   if (aborted) addMsg("sys", "中断しました");
   else if (!shown) addMsg("assistant", "(テキスト応答なし)");
 }
@@ -587,7 +609,7 @@ async function streamReply(id, text, wait) {
       setMsgTime(streamBubble, msgTime(last));
     }
     syncPartLines(last);
-    addUsage(last && last.info);
+    addUsage(last && last.info, replySeconds());
   } catch (e) { /* keep whatever streamed in; the list refresh follows */ }
   if (streamWait) { streamWait.remove(); streamWait = null; }
   if (aborted) addMsg("sys", "中断しました");
@@ -609,6 +631,7 @@ async function send() {
   addMsg("user", text, Date.now());
   const wait = addMsg("sys", "応答待ち…");
   try {
+    startReplyTimer();
     const id = await ensureSession();
     pendingId = id;
     if (eventsConnected) await streamReply(id, text, wait);
@@ -627,6 +650,7 @@ async function send() {
       setStatus("エラー", true);
     }
   } finally {
+    stopReplyTimer();
     pendingId = "";
     streamBubble = null;
     streamWait = null;
