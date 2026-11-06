@@ -309,6 +309,7 @@
     <button id="vibrateToggle" class="actbtn">バイブレーション: オン</button>
     <button id="autoSpeakToggle" class="actbtn">自動読み上げ: オフ</button>
     <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
+    <button id="autoFoldToggle" class="actbtn">自動折りたたみ: オン</button>
     <button id="shortcutBtn" class="actbtn">ショートカット</button>
   </div>
 </aside>
@@ -545,6 +546,26 @@ $("autoScrollToggle").onclick = () => {
   autoScrollOn = !autoScrollOn;
   try { localStorage.setItem(SCROLL_KEY, autoScrollOn ? "on" : "off"); } catch (e) {}
   updateAutoScrollBtn();
+};
+// 長いメッセージの自動折りたたみ: 2000文字を超えるメッセージは
+// 既定で先頭だけを表示し、「続きを表示」で全体を開く。短い返信
+// ばかりの会話では折りたたみがじゃまになるため、切ると長い
+// メッセージも最初から全文で表示し、「続きを表示」ボタンも出さ
+// ない。選択は localStorage に保存し、切り替えると表示中の
+// メッセージの折りたたみも描き直す。コードブロックの折りたたみ
+// （20行超）は別扱いで、こちらでは変えない。
+const FOLD_KEY = "oc-autofold";
+let autoFoldOn = localStorage.getItem(FOLD_KEY) !== "off";
+function updateAutoFoldBtn() {
+  $("autoFoldToggle").textContent = "自動折りたたみ: " + (autoFoldOn ? "オン" : "オフ");
+}
+updateAutoFoldBtn();
+$("autoFoldToggle").onclick = () => {
+  autoFoldOn = !autoFoldOn;
+  try { localStorage.setItem(FOLD_KEY, autoFoldOn ? "on" : "off"); } catch (e) {}
+  updateAutoFoldBtn();
+  for (const div of chat.querySelectorAll(".msg")) updateFold(div);
+  updateFoldAllBtn();
 };
 // メッセージの時刻表示の切り替え: 絶対時刻（M/D HH:MM、既定）と
 // 相対時刻（「3分前」「2時間前」）を切り替える。最近のやり取りは
@@ -1089,7 +1110,7 @@ function updateFold(div) {
     div.classList.remove("collapsed");
     return;
   }
-  if ([...((div._rawText ?? div._body.textContent))].length > FOLD_CHARS) {
+  if ([...((div._rawText ?? div._body.textContent))].length > FOLD_CHARS && autoFoldOn) {
     btn.style.display = "";
     if (div._folded === undefined) div._folded = true;
     div.classList.toggle("collapsed", div._folded);
