@@ -254,7 +254,6 @@
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
     <button id="rename" class="actbtn">名前変更</button>
     <button id="pinSession" class="actbtn">ピン留め</button>
-    <button id="forkSession" class="actbtn">分岐する</button>
     <button id="toggleAllFold" class="actbtn" disabled>すべて展開</button>
     <button id="exportMd" class="actbtn">書き出し</button>
     <button id="exportJson" class="actbtn">JSON書き出し</button>
@@ -300,8 +299,6 @@
 //   POST  /session                 -> create a session
 //   PATCH /session/{id}            -> rename a session
 //   DELETE /session/{id}           -> delete a session (with confirmation)
-//   POST  /session/{id}/fork       -> fork a session at its latest message
-//                                    (returns the new Session)
 //   GET   /config/providers    -> providers with their models (+ defaults)
 //   GET   /provider           -> all providers + connected ids (fallback)
 //   POST  /session/{id}/message    -> send a prompt, wait for the reply
@@ -1610,7 +1607,6 @@ async function send(resendText, record = true) {
   $("continueReply").disabled = true;
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
-  $("forkSession").disabled = true;
   aborted = false;
   stopSpeaking();
   ensureAudio();
@@ -1671,7 +1667,6 @@ async function send(resendText, record = true) {
     $("continueReply").disabled = !currentId;
     $("abort").disabled = true;
     $("deleteSession").disabled = false;
-    $("forkSession").disabled = false;
     applyChatSearch();
     updateFoldAllBtn();
   }
@@ -2128,42 +2123,6 @@ $("deleteSession").onclick = async () => {
     $("curId").textContent = "";
     await refreshList();
     addMsg("sys", "セッションを削除しました");
-    applyChatSearch();
-    updateFoldAllBtn();
-  } catch (e) { setStatus("エラー: " + e.message, true); }
-};
-// Fork the current session: the server copies the conversation up
-// to its latest message into a new session, so a different direction
-// can be tried without losing the original. The fork is renamed with
-// a "（分岐）" suffix so the two do not look identical in the list,
-// inherits the original's model choice, and is opened right away;
-// the original keeps its pin (the fork starts unpinned).
-$("forkSession").onclick = async () => {
-  if (!currentId) { setStatus("セッションが未選択です", true); return; }
-  const title = $("curTitle").textContent;
-  try {
-    const forked = await api("/session/" + encodeURIComponent(currentId) + "/fork", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
-    const newId = forked && forked.id;
-    if (!newId) throw new Error("分岐先のセッションIDが返されませんでした");
-    const newTitle = title === "(無題)" ? "（分岐）" : title + "（分岐）";
-    try {
-      await api("/session/" + encodeURIComponent(newId), {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: newTitle }),
-      });
-    } catch (e) { /* renaming is a nicety; the fork itself succeeded */ }
-    if (modelBySession[currentId]) {
-      modelBySession[newId] = modelBySession[currentId];
-      saveModelBySession();
-    }
-    await refreshList(newId);
-    await selectSession(newId, true);
-    addMsg("sys", "セッションを分岐しました");
     applyChatSearch();
     updateFoldAllBtn();
   } catch (e) { setStatus("エラー: " + e.message, true); }
