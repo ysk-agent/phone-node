@@ -40,6 +40,11 @@
   .copybtn { background: transparent; border: 1px solid #555; color: #ccc;
              border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer;
              margin-left: auto; flex-shrink: 0; }
+  /* 折りたたんだメッセージ: 本文の表示だけを先頭までに絞る。
+     下端をフェードさせ、続きがあることが分かるようにする。 */
+  .msg.collapsed ._body { max-height: 11em; overflow: hidden;
+    -webkit-mask-image: linear-gradient(#000 75%, transparent);
+    mask-image: linear-gradient(#000 75%, transparent); }
   .usage { align-self: flex-start; color: #888; font-size: 12px; padding: 0 2px; }
   .tool { align-self: flex-start; color: #aaa; font-size: 12px; padding: 1px 6px;
           border-left: 2px solid #555; margin-left: 2px; }
@@ -193,6 +198,7 @@ function onEvent(ev) {
     if (!streamMsgId || p.part.messageID !== streamMsgId) return;
     if (streamWait) { streamWait.remove(); streamWait = null; }
     if (!streamBubble) streamBubble = addMsg("assistant", "");
+    streamBubble._streaming = true;
     streamParts[p.part.id] = p.part.text;
     setMsgText(streamBubble, Object.values(streamParts).join(""));
     scrollChat();
@@ -274,13 +280,51 @@ function addMsg(cls, text, ms) {
     btn.textContent = "コピー";
     btn.onclick = () => copyMsg(div, btn);
     foot.appendChild(btn);
+    // 長いメッセージの折りたたみボタン。表示の切り替えだけで、
+    // コピーや会話内検索の対象は全文のまま。長さが足りない間は隠す。
+    const foldBtn = document.createElement("button");
+    foldBtn.className = "copybtn";
+    foldBtn.textContent = "続きを表示";
+    foldBtn.style.display = "none";
+    foldBtn.onclick = () => {
+      div._folded = !div._folded;
+      div.classList.toggle("collapsed", div._folded);
+      foldBtn.textContent = div._folded ? "続きを表示" : "折りたたむ";
+    };
+    foot.insertBefore(foldBtn, btn);
+    div._foldBtn = foldBtn;
   }
   if (ms) setMsgTime(div, ms);
   chat.appendChild(div);
   scrollChat();
+  updateFold(div);
   return div;
 }
-function setMsgText(div, text) { div._body.textContent = text; }
+function setMsgText(div, text) { div._body.textContent = text; updateFold(div); }
+// 長いメッセージの折りたたみ: 2000文字を超えるメッセージは最初は
+// 先頭だけを表示し、「続きを表示」で全体を開く。折りたたみは表示だけ
+// のもので、コピーや会話内検索は全文が対象のまま。応答の逐次表示中
+// は折りたたまない（届くテキストが見えなくなるため）。
+const FOLD_CHARS = 2000;
+function updateFold(div) {
+  const btn = div._foldBtn;
+  if (!btn) return;
+  if (div._streaming) {
+    btn.style.display = "none";
+    div.classList.remove("collapsed");
+    return;
+  }
+  if ([...div._body.textContent].length > FOLD_CHARS) {
+    btn.style.display = "";
+    if (div._folded === undefined) div._folded = true;
+    div.classList.toggle("collapsed", div._folded);
+    btn.textContent = div._folded ? "続きを表示" : "折りたたむ";
+  } else {
+    btn.style.display = "none";
+    div.classList.remove("collapsed");
+    div._folded = undefined;
+  }
+}
 // Copy a bubble's text to the clipboard. Uses the
 // Clipboard API, with a hidden textarea + execCommand fallback for
 // browsers without it, and the button briefly shows the result.
@@ -686,6 +730,8 @@ async function send(resendText) {
   } finally {
     stopReplyTimer();
     pendingId = "";
+    // 逐次表示が終わったので、長い応答はここで折りたたみ対象になる。
+    if (streamBubble) { streamBubble._streaming = false; updateFold(streamBubble); }
     streamBubble = null;
     streamWait = null;
     streamParts = {};
