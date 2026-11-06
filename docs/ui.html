@@ -255,6 +255,7 @@
     <button id="editResend">編集して再送</button>
     <button id="continueReply" disabled>続きを生成</button>
     <button id="clearInput">入力をクリア</button>
+    <button id="voiceInput">音声入力</button>
     <button id="openChatSearch">会話内検索</button>
     <button id="enterModeToggle">送信キー: Enter</button>
     <div class="menuLabel">定型文</div>
@@ -1895,6 +1896,64 @@ $("input").addEventListener("input", () => {
 });
 const savedDraft = localStorage.getItem(DRAFT_KEY);
 if (savedDraft) { $("input").value = savedDraft; autoResize(); updateCharCount(); }
+// 音声入力: ブラウザの音声認識で話した文を入力欄へ入れる。Web Speech
+// API (SpeechRecognition) だけを使い、サーバには触れない。対応して
+// いないブラウザではボタンを出さない。認識は連続で行い、確定した文
+// だけをカーソル位置へ追加する（未確定の文は入れないので、下書きが
+// 途中で書き換わらない）。「＋」メニューのボタンで開始と停止を切り
+// 替え、認識が止まると表示も戻る。マイクの許可はブラウザが尋ねる。
+const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null;
+let voiceActive = false;
+function updateVoiceBtn() {
+  $("voiceInput").textContent = voiceActive ? "音声入力を停止" : "音声入力";
+}
+if (!SpeechRecognition) {
+  $("voiceInput").style.display = "none";
+} else {
+  $("voiceInput").onclick = () => {
+    if (voiceActive) { try { recognition.stop(); } catch (e) {} return; }
+    try { recognition = new SpeechRecognition(); }
+    catch (e) { setStatus("音声入力を開始できませんでした", true); return; }
+    recognition.lang = "ja-JP";
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    voiceActive = true;
+    updateVoiceBtn();
+    setStatus("音声入力中…");
+    recognition.onresult = e => {
+      let finalText = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+      }
+      if (!finalText) return;
+      const inputEl = $("input");
+      const start = inputEl.selectionStart ?? inputEl.value.length;
+      const end = inputEl.selectionEnd ?? inputEl.value.length;
+      inputEl.value = inputEl.value.slice(0, start) + finalText + inputEl.value.slice(end);
+      const pos = start + finalText.length;
+      inputEl.setSelectionRange(pos, pos);
+      autoResize();
+      updateCharCount();
+      saveDraft();
+    };
+    recognition.onerror = e => {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed")
+        setStatus("音声入力が許可されていません", true);
+    };
+    recognition.onend = () => {
+      voiceActive = false;
+      updateVoiceBtn();
+      setStatus("接続済み");
+    };
+    try { recognition.start(); }
+    catch (e) {
+      voiceActive = false;
+      updateVoiceBtn();
+      setStatus("音声入力を開始できませんでした", true);
+    }
+  };
+}
 // 入力欄へのファイルのドラッグ＆ドロップ: 長いログやコードを
 // プロンプトに入れたいとき、テキストファイルを入力欄へ落とすと
 // その内容がカーソル位置に入る。テキストと判断できるものだけ
