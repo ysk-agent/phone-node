@@ -90,6 +90,9 @@
            border-radius: 6px; padding: 5px 8px; font-size: 13px; max-width: 170px; }
   #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
            padding: 9px; font-size: 14px; resize: none; max-height: 40dvh; overflow-y: auto; }
+  /* ファイルをドラッグしているときの入力欄: 枠の色を変えて、
+     ここへ落とせば内容が入ることが分かるようにする。 */
+  #input.dragover { border-color: #7fb3e8; }
   #charCount { color: #888; font-size: 12px; align-self: center; white-space: nowrap; }
   /* 会話をさかのぼって読んでいるときだけ出る「最新へ」ボタン。
      フッターの上に浮かせ、表示・非表示は JS が切り替える。 */
@@ -197,7 +200,7 @@
   <button class="closebtn" id="shortcutClose">閉じる</button>
 </dialog>
 <footer>
-  <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）"></textarea>
+  <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）" title="テキストファイルをここへドロップすると、その内容が入力欄に入ります"></textarea>
   <span id="charCount"></span>
   <button id="send">送信</button>
   <button id="resend" disabled>再送信</button>
@@ -1509,6 +1512,54 @@ $("input").addEventListener("input", () => {
 });
 const savedDraft = localStorage.getItem(DRAFT_KEY);
 if (savedDraft) { $("input").value = savedDraft; autoResize(); updateCharCount(); }
+// 入力欄へのファイルのドラッグ＆ドロップ: 長いログやコードを
+// プロンプトに入れたいとき、テキストファイルを入力欄へ落とすと
+// その内容がカーソル位置に入る。テキストと判断できるものだけ
+// （text/* か、よくあるテキストの拡張子）が対象で、それ以外は
+// 入れずにその旨を表示する。複数ファイルは空行を挟んで続けて
+// 入れる。ファイルの中身は入力欄に入るだけで、送信はしない。
+// 読み込みはブラウザの File API のみで、サーバには触れない。
+const TEXT_EXTS = [".txt", ".md", ".log", ".json", ".csv", ".js", ".ts", ".py", ".sh", ".html", ".css", ".xml", ".yaml", ".yml", ".toml"];
+function isTextFile(f) {
+  if (f.type && f.type.startsWith("text/")) return true;
+  const name = (f.name || "").toLowerCase();
+  return TEXT_EXTS.some(ext => name.endsWith(ext));
+}
+$("input").addEventListener("dragover", e => {
+  e.preventDefault();
+  $("input").classList.add("dragover");
+});
+$("input").addEventListener("dragleave", () => $("input").classList.remove("dragover"));
+$("input").addEventListener("drop", async e => {
+  e.preventDefault();
+  $("input").classList.remove("dragover");
+  const files = [...(e.dataTransfer.files || [])];
+  if (!files.length) return;
+  const texts = [];
+  let skipped = 0;
+  for (const f of files) {
+    if (!isTextFile(f)) { skipped++; continue; }
+    try { texts.push(await f.text()); }
+    catch (_) { skipped++; }
+  }
+  if (texts.length) {
+    const inputEl = $("input");
+    const start = inputEl.selectionStart ?? inputEl.value.length;
+    const end = inputEl.selectionEnd ?? inputEl.value.length;
+    const insert = texts.join("\n\n");
+    inputEl.value = inputEl.value.slice(0, start) + insert + inputEl.value.slice(end);
+    const pos = start + insert.length;
+    inputEl.setSelectionRange(pos, pos);
+    autoResize();
+    updateCharCount();
+    try { localStorage.setItem(DRAFT_KEY, inputEl.value); } catch (_) {}
+    addMsg("sys", "ファイル " + texts.length + "件の内容を入力欄に入れました" +
+      (skipped ? "（" + skipped + "件はテキストファイルではないため入れませんでした）" : ""));
+  } else if (skipped) {
+    setStatus("テキストファイルではないため入れませんでした", true);
+  }
+  $("input").focus();
+});
 // 送信履歴: ↑↓キーで過去のプロンプトを呼び出す。送信したプロンプトは
 // localStorage に最大30件まで保存する。入力欄が空のとき（または
 // カーソルが先頭にあるとき）に ↑ を押すと最新の送信文が入り、↑↓で
