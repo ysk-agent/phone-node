@@ -726,6 +726,15 @@ function refreshTabTitle() {
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) document.title = tabTitle();
 });
+// 応答中にタブを閉じたり再読み込みしたりすると、生成中の応答が
+// 止まってしまう（中断と同じ扱いになる）。誤って離れるのを防ぐため、
+// 応答待ちの間だけブラウザの離脱確認を出す。文言はブラウザ任せで、
+// ここでは出すかどうかだけを決める。
+window.addEventListener("beforeunload", e => {
+  if (!pendingId) return;
+  e.preventDefault();
+  e.returnValue = "";
+});
 function setReplyTitle(text) {
   document.title = text ? text + " - " + tabTitle() : tabTitle();
 }
