@@ -151,7 +151,6 @@
   .drawerRow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
   #sessionList { width: 100%; box-sizing: border-box; }
   #sessionSearch { flex: 1; min-width: 120px; }
-  #modelFilter { flex: 1; min-width: 120px; }
   #sessionCount { color: #888; font-size: 11px; white-space: nowrap; }
   #server, #serverHistory { width: 100%; box-sizing: border-box; }
   #curId { color: #888; font-size: 11px; word-break: break-all; }
@@ -287,7 +286,6 @@
     <label>履歴 <select id="serverHistory"><option value="">（履歴から選ぶ）</option></select></label>
     <button id="refreshModels" class="actbtn">モデル更新</button>
     <button id="favModel" class="actbtn">モデルをお気に入りに</button>
-    <div class="drawerRow"><input id="modelFilter" type="search" placeholder="モデル名で絞り込み"></div>
     <button id="themeToggle" class="actbtn">明るい表示</button>
     <button id="fontSizeToggle" class="actbtn">文字: 標準</button>
     <button id="mdToggle" class="actbtn">表示: Markdown</button>
@@ -603,8 +601,6 @@ function applySessionModel(id) {
     o.value = m;
     o.textContent = m + "（取得外）";
     modelEl.appendChild(o);
-    takeModelSnapshot();
-    applyModelFilter();
   }
   modelEl.value = m;
   try { localStorage.setItem("oc-model", m); } catch (e) {}
@@ -1345,8 +1341,6 @@ async function refreshModels() {
       modelEl.appendChild(o);
     }
     if (saved) modelEl.value = saved;
-    takeModelSnapshot();
-    applyModelFilter();
     return false;
   }
   modelEl.innerHTML = "";
@@ -1389,52 +1383,8 @@ async function refreshModels() {
   modelEl.value = saved;
   if (!modelEl.value && modelEl.options.length) modelEl.selectedIndex = 0;
   localStorage.setItem("oc-model", modelEl.value);
-  takeModelSnapshot();
-  applyModelFilter();
   return true;
 }
-
-// モデル一覧の絞り込み: プロバイダが増えると一覧が長くなるため、
-// ドロワーの検索欄で名前・IDの一部に一致するものだけに絞る。
-// 現在選んでいるモデルとお気に入りは常に残し、一致するものが
-// ないグループは出さない。絞り込みは表示だけのもので、選択や
-// サーバ側の状態には触れない。一覧を作り直す refreshModels()
-// のたびに一覧の写しを取り直して絞り込みを付け直すので、
-// モデル更新後も検索欄の条件はそのまま残る。
-let modelOptionsSnapshot = [];
-function takeModelSnapshot() {
-  const modelEl = $("model");
-  modelOptionsSnapshot = [...modelEl.querySelectorAll("option")].map(o => ({
-    value: o.value,
-    text: o.textContent,
-    group: o.parentElement.tagName === "OPTGROUP" ? o.parentElement.label : ""
-  }));
-}
-function applyModelFilter() {
-  const modelEl = $("model");
-  const q = $("modelFilter").value.trim().toLowerCase();
-  const cur = modelEl.value;
-  if (!modelOptionsSnapshot.length) takeModelSnapshot();
-  const kept = modelOptionsSnapshot.filter(o =>
-    !q || o.value === cur || o.value === favModel ||
-    o.value.toLowerCase().includes(q) || o.text.toLowerCase().includes(q));
-  modelEl.innerHTML = "";
-  let lastGroup = null, groupEl = null;
-  for (const o of kept) {
-    if (o.group !== lastGroup) {
-      lastGroup = o.group;
-      groupEl = o.group ? document.createElement("optgroup") : null;
-      if (groupEl) { groupEl.label = o.group; modelEl.appendChild(groupEl); }
-    }
-    const opt = document.createElement("option");
-    opt.value = o.value;
-    opt.textContent = o.text;
-    (groupEl || modelEl).appendChild(opt);
-  }
-  modelEl.value = cur;
-  if (!modelEl.value && modelEl.options.length) modelEl.selectedIndex = 0;
-}
-$("modelFilter").addEventListener("input", applyModelFilter);
 
 // セッションのピン留め: よく使う会話を一覧の先頭に固定する。
 // ピンはブラウザごとに localStorage に保存し、サーバには触れない。
