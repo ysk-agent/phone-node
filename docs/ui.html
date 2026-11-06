@@ -265,6 +265,7 @@
     <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
     <label>履歴 <select id="serverHistory"><option value="">（履歴から選ぶ）</option></select></label>
     <button id="refreshModels" class="actbtn">モデル更新</button>
+    <button id="favModel" class="actbtn">モデルをお気に入りに</button>
     <button id="themeToggle" class="actbtn">明るい表示</button>
     <button id="fontSizeToggle" class="actbtn">文字: 標準</button>
     <button id="mdToggle" class="actbtn">表示: Markdown</button>
@@ -580,6 +581,7 @@ function applySessionModel(id) {
   }
   modelEl.value = m;
   try { localStorage.setItem("oc-model", m); } catch (e) {}
+  updateFavModelBtn();
 }
 // サーバごとの最後のセッション: ノードを切り替えると会話も
 // 変わるため、サーバごとに最後に開いたセッションを localStorage
@@ -1264,6 +1266,20 @@ function showSessionTotals(messages) {
   scrollChat();
 }
 
+// モデルのお気に入り: よく使うモデルを一覧の先頭に「★ お気に
+// 入り」として出す。セッションのピン留めと同じ考え方で、ブラウザ
+// ごとに localStorage へ1つだけ保存し、サーバには触れない。
+// refreshModels() が一覧を作り直すときに、お気に入りの表示も
+// 付け直す。
+const FAV_MODEL_KEY = "oc-fav-model";
+let favModel = localStorage.getItem(FAV_MODEL_KEY) || "";
+function updateFavModelBtn() {
+  const btn = $("favModel");
+  if (!btn) return;
+  const cur = $("model").value;
+  btn.textContent = favModel && favModel === cur ? "★ お気に入り解除" : "モデルをお気に入りに";
+}
+
 // Rebuild the model dropdown from the server's providers, grouped
 // by provider. /config/providers lists only the connected providers,
 // so the list stays usable; /provider filtered by its `connected`
@@ -1297,6 +1313,7 @@ async function refreshModels() {
   }
   modelEl.innerHTML = "";
   let found = false;
+  let favName = "";
   for (const p of providers) {
     const models = Object.values(p.models || {})
       .sort((a, b) => (a.name || a.id).localeCompare(b.name || b.id));
@@ -1308,6 +1325,7 @@ async function refreshModels() {
       o.value = p.id + "/" + m.id;
       o.textContent = m.name || m.id;
       if (o.value === saved) found = true;
+      if (o.value === favModel) favName = m.name || m.id;
       group.appendChild(o);
     }
     modelEl.appendChild(group);
@@ -1317,6 +1335,18 @@ async function refreshModels() {
     o.value = saved;
     o.textContent = saved + "（取得外）";
     modelEl.insertBefore(o, modelEl.firstChild);
+  }
+  // お気に入りのモデルは、元のプロバイダの並びにも残したまま、
+  // 先頭の「★ お気に入り」にも出す。value が重複しても select
+  // は先に一致したほうを選ぶので、保存した選択は変わらない。
+  if (favName) {
+    const group = document.createElement("optgroup");
+    group.label = "★ お気に入り";
+    const o = document.createElement("option");
+    o.value = favModel;
+    o.textContent = favName;
+    group.appendChild(o);
+    modelEl.insertBefore(group, modelEl.firstChild);
   }
   modelEl.value = saved;
   if (!modelEl.value && modelEl.options.length) modelEl.selectedIndex = 0;
@@ -2266,6 +2296,7 @@ $("serverHistory").onchange = () => {
 $("model").onchange = () => {
   localStorage.setItem("oc-model", $("model").value);
   if (currentId) { modelBySession[currentId] = $("model").value; saveModelBySession(); }
+  updateFavModelBtn();
 };
 // モデル一覧の手動更新: サーバ側でモデルが増えたとき、ページを
 // 読み直さなくても一覧を取り直せる。セッション一覧の「一覧更新」
@@ -2280,6 +2311,21 @@ $("refreshModels").onclick = async () => {
   } catch (e) { setStatus("エラー: " + e.message, true); }
   btn.disabled = false;
 };
+
+// モデルのお気に入りの切り替え: 今選んでいるモデルをお気に入り
+// にする。すでにそのモデルがお気に入りなら解除する。お気に入り
+// は1つだけなので、別のモデルを選んで押すとそちらへ移る。
+// 一覧を作り直して先頭の「★ お気に入り」に反映する。
+$("favModel").onclick = async () => {
+  const cur = $("model").value;
+  if (!cur) return;
+  favModel = favModel === cur ? "" : cur;
+  try { localStorage.setItem(FAV_MODEL_KEY, favModel); } catch (e) {}
+  updateFavModelBtn();
+  await refreshModels();
+  updateFavModelBtn();
+};
+updateFavModelBtn();
 
 // キーボードショートカットの一覧: ヘッダーのボタンか「?」キーで
 // 標準の <dialog> を開く。Esc や背景のクリックでも閉じる。
