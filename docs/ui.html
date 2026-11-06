@@ -1007,13 +1007,11 @@ function addUsage(info, seconds) {
 }
 // Sum the token counts and cost of every assistant message in the
 // session, so the total spend of a long conversation is visible at
-// a glance. The labels match addUsage, so the two lines read the
-// same way; a session without any usage info shows no line. The
-// old line is removed first, so there is ever only one totals line
-// and it always sits at the end of the chat.
-function showSessionTotals(messages) {
-  const old = chat.querySelector(".usage.total");
-  if (old) old.remove();
+// a glance. The labels match addUsage, so the totals line reads the
+// same way; a session without any usage info gives no parts. The
+// exports (Markdown, JSON, clipboard copy) share this helper, so
+// the totals they carry match the line shown on screen.
+function sessionUsageParts(messages) {
   let input = 0, output = 0, reasoning = 0, cacheRead = 0, cacheWrite = 0, cost = 0;
   let any = false;
   for (const m of messages || []) {
@@ -1030,7 +1028,7 @@ function showSessionTotals(messages) {
     }
     if (typeof m.info.cost === "number") { cost += m.info.cost; any = true; }
   }
-  if (!any) return;
+  if (!any) return [];
   const parts = [];
   if (input) parts.push("入力 " + input.toLocaleString("en-US"));
   if (output) parts.push("出力 " + output.toLocaleString("en-US"));
@@ -1038,6 +1036,12 @@ function showSessionTotals(messages) {
   if (cacheRead) parts.push("キャッシュ読込 " + cacheRead.toLocaleString("en-US"));
   if (cacheWrite) parts.push("キャッシュ書込 " + cacheWrite.toLocaleString("en-US"));
   if (cost > 0) parts.push("コスト " + fmtCost(cost));
+  return parts;
+}
+function showSessionTotals(messages) {
+  const old = chat.querySelector(".usage.total");
+  if (old) old.remove();
+  const parts = sessionUsageParts(messages);
   if (!parts.length) return;
   const div = document.createElement("div");
   div.className = "usage total";
@@ -1783,7 +1787,8 @@ $("copySessionId").onclick = async () => {
 // change is needed; it downloads through a blob URL. Text parts are
 // written as-is, tool calls as one short line each so nothing is
 // silently dropped, and an assistant message's token/cost line is
-// added when the server reports it.
+// added when the server reports it. The session-wide totals line
+// is added at the end, matching the one shown on screen.
 function mdSafe(text) { return (text || "").replace(/[\\/:*?"<>|]/g, "_").trim(); }
 async function exportConversation() {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
@@ -1809,6 +1814,8 @@ async function exportConversation() {
       if (parts.length) lines.push("", "使用量: " + parts.join(" · "));
       lines.push("");
     }
+    const totalParts = sessionUsageParts(messages);
+    if (totalParts.length) lines.push("---", "", "会話全体: " + totalParts.join(" · "));
     const blob = new Blob([lines.join("\n")], { type: "text/markdown;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1826,6 +1833,8 @@ $("exportMd").onclick = exportConversation;
 // サーバから取得したメッセージをそのまま JSON ファイルにする。
 // トークン数やツール呼び出しの状態など、画面に表示しきれない
 // 情報も残るので、後から調べたり別のツールで読んだりできる。
+// 会話全体の使用量合計も totals として入れる（画面の合計行と
+// 同じ文面なので、読む側は集計し直さなくてよい）。
 async function exportConversationJson() {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
   try {
@@ -1834,12 +1843,14 @@ async function exportConversationJson() {
     const stamp = now.getFullYear() + String(now.getMonth() + 1).padStart(2, "0") +
       String(now.getDate()).padStart(2, "0") + "-" +
       String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0");
+    const totalParts = sessionUsageParts(messages);
     const data = {
       title: $("curTitle").textContent,
       sessionId: currentId,
       exportedAt: now.toISOString(),
       messages,
     };
+    if (totalParts.length) data.totals = totalParts.join(" · ");
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -1856,7 +1867,7 @@ $("exportJson").onclick = exportConversationJson;
 // 会話全体をコピーする: 書き出し（ファイル保存）とは別に、
 // 現在の会話をそのままの文面でクリップボードに入れる。他の
 // ツールへ貼り付けるときに使う。文面は書き出しと同じ材料
-// （テキスト、ツール呼び出しの行、使用量）で作る。
+// （テキスト、ツール呼び出しの行、使用量、会話全体の合計）で作る。
 async function copyConversation() {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
   try {
@@ -1874,6 +1885,8 @@ async function copyConversation() {
       if (parts.length) lines.push("使用量: " + parts.join(" · "));
       lines.push("");
     }
+    const totalParts = sessionUsageParts(messages);
+    if (totalParts.length) lines.push("会話全体: " + totalParts.join(" · "));
     const ok = await copyText(lines.join("\n"));
     if (ok) addMsg("sys", "会話をコピーしました");
     else setStatus("コピーに失敗しました", true);
