@@ -50,6 +50,7 @@
            display: flex; gap: 8px; }
   #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
            padding: 9px; font-size: 14px; resize: none; max-height: 40dvh; overflow-y: auto; }
+  #charCount { color: #888; font-size: 12px; align-self: center; white-space: nowrap; }
   /* 会話をさかのぼって読んでいるときだけ出る「最新へ」ボタン。
      フッターの上に浮かせ、表示・非表示は JS が切り替える。 */
   #toLatest { position: fixed; right: 14px; bottom: 84px; display: none;
@@ -76,6 +77,7 @@
 <button id="toLatest">最新へ ↓</button>
 <footer>
   <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）"></textarea>
+  <span id="charCount"></span>
   <button id="send">送信</button>
   <button id="resend" disabled>再送信</button>
   <button id="abort" disabled>中断</button>
@@ -652,6 +654,7 @@ async function send(resendText) {
     $("input").value = "";
     localStorage.removeItem("oc-draft");
     autoResize();
+    updateCharCount();
   }
   $("send").disabled = true;
   $("resend").disabled = true;
@@ -707,6 +710,12 @@ $("input").addEventListener("keydown", e => {
 // （画面の4割まで）、未送信の下書きは localStorage に保存して
 // ページ再表示時に復元する。送信時に下書きは消え、高さも戻る。
 const DRAFT_KEY = "oc-draft";
+// 入力中のプロンプトの文字数をフッターに表示する。空のときは
+// 表示しない。[...value] で数えるので絵文字も1文字になる。
+function updateCharCount() {
+  const n = [...$("input").value].length;
+  $("charCount").textContent = n ? n + "文字" : "";
+}
 function autoResize() {
   const inputEl = $("input");
   inputEl.style.height = "auto";
@@ -715,10 +724,11 @@ function autoResize() {
 }
 $("input").addEventListener("input", () => {
   autoResize();
+  updateCharCount();
   localStorage.setItem(DRAFT_KEY, $("input").value);
 });
 const savedDraft = localStorage.getItem(DRAFT_KEY);
-if (savedDraft) { $("input").value = savedDraft; autoResize(); }
+if (savedDraft) { $("input").value = savedDraft; autoResize(); updateCharCount(); }
 // 送信履歴: ↑↓キーで過去のプロンプトを呼び出す。送信したプロンプトは
 // localStorage に最大30件まで保存する。入力欄が空のとき（または
 // カーソルが先頭にあるとき）に ↑ を押すと最新の送信文が入り、↑↓で
@@ -743,6 +753,7 @@ function showHistory(i) {
   historyIndex = i;
   $("input").value = history[history.length - 1 - i] || "";
   autoResize();
+  updateCharCount();
   $("input").setSelectionRange($("input").value.length, $("input").value.length);
 }
 $("input").addEventListener("keydown", e => {
@@ -762,7 +773,7 @@ $("input").addEventListener("keydown", e => {
   } else {
     e.preventDefault();
     if (historyIndex > 0) showHistory(historyIndex - 1);
-    else { historyIndex = -1; inputEl.value = historyDraft; autoResize(); }
+    else { historyIndex = -1; inputEl.value = historyDraft; autoResize(); updateCharCount(); }
   }
 });
 $("input").addEventListener("input", () => { historyIndex = -1; });
