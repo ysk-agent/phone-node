@@ -201,6 +201,7 @@
   <span id="charCount"></span>
   <button id="send">送信</button>
   <button id="resend" disabled>再送信</button>
+  <button id="continueReply" disabled>続きを生成</button>
   <button id="clearInput">入力をクリア</button>
   <button id="abort" disabled>中断</button>
   <button id="enterModeToggle">送信キー: Enter</button>
@@ -1183,6 +1184,7 @@ async function loadMessages(id) {
 async function selectSession(id, load) {
   currentId = id;
   updateCopyIdBtn();
+  $("continueReply").disabled = !id;
   applySessionModel(id);
   rememberLastSession(id);
   listEl.value = id;
@@ -1281,11 +1283,15 @@ async function streamReply(id, text, wait) {
 // 入力欄の下書きには触れない。send() に引数を渡すとその文を送り、
 // 渡さなければ入力欄の文を送る。
 let lastSentText = "";
-async function send(resendText) {
+async function send(resendText, record = true) {
   const text = (resendText ?? $("input").value).trim();
   if (!text) return;
-  saveHistory(text);
-  lastSentText = text;
+  // 記録しない送信（続きの生成）は送信履歴と再送信の対象に触れ
+  // ないので、↑↓キーや再送信は直前の自分のプロンプトのまま。
+  if (record) {
+    saveHistory(text);
+    lastSentText = text;
+  }
   if (resendText === undefined) {
     $("input").value = "";
     localStorage.removeItem("oc-draft");
@@ -1294,6 +1300,7 @@ async function send(resendText) {
   }
   $("send").disabled = true;
   $("resend").disabled = true;
+  $("continueReply").disabled = true;
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
   aborted = false;
@@ -1349,6 +1356,7 @@ async function send(resendText) {
     waitIdle = null;
     $("send").disabled = false;
     $("resend").disabled = !lastSentText;
+    $("continueReply").disabled = !currentId;
     $("abort").disabled = true;
     $("deleteSession").disabled = false;
     applyChatSearch();
@@ -1358,6 +1366,11 @@ async function send(resendText) {
 
 $("send").onclick = () => send();
 $("resend").onclick = () => { if (lastSentText) send(lastSentText); };
+// 応答の続きを生成: 応答が途中で切れたとき、「続けてください」を
+// 送って続きを出させる。入力欄の文は使わず、送信履歴と再送信の
+// 対象にも触れない。セッション未選択のときは送る相手がないので
+// 何もしない（新しいセッションに「続けてください」は意味がない）。
+$("continueReply").onclick = () => { if (currentId) send("続けてください", false); };
 // 入力欄を空にする: 長い下書きを書き直したいとき、全文を選択して
 // 消す代わりに1回で空にできる。下書きも消えるので、ページを開き
 // 直しても復元されない。送信履歴には触れない。
