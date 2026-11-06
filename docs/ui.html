@@ -25,6 +25,7 @@
               font-size: 13px; display: flex; gap: 10px; align-items: baseline; }
   #curTitle { font-weight: 600; }
   #curId { color: #888; font-size: 11px; word-break: break-all; }
+  #curCount { color: #888; font-size: 11px; white-space: nowrap; }
   #titleBar input { background: #222; color: #eee; border: 1px solid #444;
            border-radius: 6px; padding: 4px 8px; font-size: 13px; margin-left: auto; width: 170px; }
   #chatSearchCount { color: #888; font-size: 12px; white-space: nowrap; }
@@ -78,7 +79,7 @@
   <button id="exportMd">書き出し</button>
   <button id="refreshList">一覧更新</button>
 </header>
-<div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span></div>
+<div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><span id="curCount"></span><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span></div>
 <main id="chat"></main>
 <button id="toLatest">最新へ ↓</button>
 <footer>
@@ -657,6 +658,13 @@ async function refreshList(selectId) {
   setStatus(lastLatency >= 0 ? "接続済み（" + lastLatency + "ms）" : "接続済み");
 }
 
+// 現在の会話のメッセージ件数をタイトルバーに表示する。長い会話
+// ほど件数が目安になる。取得済みのメッセージ配列から数えるだけ
+// なので、サーバへの追加の問い合わせは不要。
+function setMsgCount(n) {
+  $("curCount").textContent = typeof n === "number" && n > 0 ? n + "件のメッセージ" : "";
+}
+
 async function loadMessages(id) {
   const messages = await api("/session/" + encodeURIComponent(id) + "/message");
   chat.innerHTML = "";
@@ -667,6 +675,7 @@ async function loadMessages(id) {
     .find(m => m.info && m.info.role === "assistant");
   addUsage(lastAssistant && lastAssistant.info);
   showSessionTotals(messages);
+  setMsgCount(messages.length);
   scrollChat(true);
   applyChatSearch();
 }
@@ -803,6 +812,7 @@ async function send(resendText) {
     try {
       const messages = await api("/session/" + encodeURIComponent(id) + "/message");
       showSessionTotals(messages);
+      setMsgCount(messages.length);
     } catch (e) { /* keep the reply as shown */ }
     setStatus("接続済み");
   } catch (e) {
@@ -914,6 +924,7 @@ $("newSession").onclick = async () => {
   try {
     currentId = "";
     chat.innerHTML = "";
+    setMsgCount(0);
     const id = await ensureSession();
     addMsg("sys", "新しいセッションを開始しました");
     applyChatSearch();
@@ -997,6 +1008,7 @@ $("deleteSession").onclick = async () => {
     currentId = "";
     localStorage.removeItem("oc-last-session");
     chat.innerHTML = "";
+    setMsgCount(0);
     $("curTitle").textContent = "（セッション未選択）";
     $("curId").textContent = "";
     await refreshList();
