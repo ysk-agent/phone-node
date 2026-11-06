@@ -229,9 +229,10 @@
 //   (the same GET is also polled every 30s while idle, so messages
 //   sent from another browser appear here automatically)
 //   (a message's info carries time.created (ms since epoch); an
-//   assistant message's info also carries tokens {input, output,
-//   reasoning, cache {read, write}} and cost in USD; a message's
-//   parts are text and tool calls, the latter with a state
+//   assistant message's info also carries modelID/providerID,
+//   tokens {input, output, reasoning, cache {read, write}} and
+//   cost in USD; a message's parts are text and tool calls, the
+//   latter with a state
 //   {status: pending|running|completed|error, title?})
 // Sessions and titles live on the server, so history is shared by
 // every browser that opens this page. Nothing else about opencode
@@ -968,18 +969,28 @@ function fmtTime(ms) {
 }
 
 // Show the token counts and cost of an assistant message, when the
-// server reports them. Only the fields that are present are shown,
-// so a free model without pricing still shows its token counts and
-// a message without usage info shows nothing at all.
+// server reports them, together with the model that produced the
+// reply (modelID/providerID, when the server reports it). Only the
+// fields that are present are shown, so a free model without
+// pricing still shows its token counts and a message without usage
+// info shows nothing at all.
 function fmtCost(c) {
   const s = c >= 0.01 ? c.toFixed(4) : c.toFixed(6);
   return "$" + s.replace(/0+$/, "").replace(/\.$/, "");
 }
-// The token/cost parts of an assistant message's info, shared by
-// the on-screen usage line and the Markdown export.
+// The model, token and cost parts of an assistant message's info,
+// shared by the on-screen usage line and the Markdown export. The
+// model comes first: with a different model remembered per session,
+// knowing which model answered this reply matters as much as how
+// much it cost. A message whose info carries no modelID simply
+// shows no model part.
 function usageParts(info) {
   if (!info) return [];
-  const t = info.tokens, parts = [];
+  const parts = [];
+  if (typeof info.modelID === "string" && info.modelID) {
+    parts.push("使用モデル " + (info.providerID ? info.providerID + "/" : "") + info.modelID);
+  }
+  const t = info.tokens;
   if (t) {
     if (typeof t.input === "number") parts.push("入力 " + t.input.toLocaleString("en-US"));
     if (typeof t.output === "number") parts.push("出力 " + t.output.toLocaleString("en-US"));
