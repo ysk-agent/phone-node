@@ -276,6 +276,7 @@
     <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="pinOnlyToggle">表示: すべて</button><button id="refreshList">一覧更新</button></div>
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
     <button id="markAllSeen" class="actbtn">すべて既読にする</button>
+    <button id="nextUnread" class="actbtn">次の未読へ</button>
     <button id="copyLink" class="actbtn">リンクをコピー</button>
     <button id="rename" class="actbtn">名前変更</button>
     <button id="pinSession" class="actbtn">ピン留め</button>
@@ -1638,6 +1639,27 @@ function updateMarkAllSeenBtn() {
 }
 $("markAllSeen").onclick = markAllSeen;
 
+// 次の未読へ: 「●」の付いた未読セッションを一覧と同じ並び順
+// （ピン留め優先・選択中の並び替え順）でたどる。開いている会話
+// より後ろにある未読を優先し、後ろになければ先頭へ戻るので、
+// 未読が1件だけでもその会話へ移動できる。開いた会話は既読に
+// なるため、押すたびに次の未読へ進む。未読がなければ無効化する。
+function nextUnread() {
+  const sorted = [...allSessions].sort((a, b) =>
+    (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0) ||
+    sessionSortTime(b) - sessionSortTime(a));
+  const unread = sorted.filter(s => hasNewMessages(s));
+  if (!unread.length) return;
+  const curPos = sorted.findIndex(s => s.id === currentId);
+  const next = unread.find(s => sorted.indexOf(s) > curPos) || unread[0];
+  closeDrawer();
+  selectSession(next.id, true).catch(e => setStatus("エラー: " + e.message, true));
+}
+function updateNextUnreadBtn() {
+  $("nextUnread").disabled = !allSessions.some(s => hasNewMessages(s));
+}
+$("nextUnread").onclick = nextUnread;
+
 // Rebuild the session dropdown from allSessions, keeping only the
 // sessions whose title or id contains the search box text (matched
 // case-insensitively), and, while pin-only display is on, only the
@@ -1692,6 +1714,7 @@ function renderListOptions(selectedId) {
   $("sessionCount").textContent = total ? (shown < total ? shown + "件 / 全" + total + "件" : "全" + total + "件") : "";
   updatePinBtn();
   updateMarkAllSeenBtn();
+  updateNextUnreadBtn();
   if (want && [...listEl.options].some(o => o.value === want)) {
     listEl.value = want;
     const cur = allSessions.find(s => s.id === want);
