@@ -1486,6 +1486,10 @@ $("enterModeToggle").onclick = () => {
 };
 $("input").addEventListener("keydown", e => {
   if (e.key !== "Enter") return;
+  // IME で変換中の Enter は変換の確定に譲り、送信しない。日本語
+  // 入力では変換のたびに Enter を押すため、ここを見ないと変換
+  // 確定のはずの Enter でプロンプトが送られてしまう。
+  if (e.isComposing) return;
   if (enterMode === "ctrl") {
     if (e.ctrlKey || e.metaKey) { e.preventDefault(); send(); }
   } else if (!e.shiftKey) { e.preventDefault(); send(); }
