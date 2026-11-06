@@ -23,9 +23,13 @@
   #status { color: #9c9; margin-left: auto; }
   #status.err { color: #f88; }
   #titleBar { padding: 6px 12px; background: #161616; border-bottom: 1px solid #2a2a2a;
-              font-size: 13px; display: flex; gap: 10px; align-items: baseline; }
+              font-size: 13px; display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
   #curTitle { font-weight: 600; }
-  #curId { color: #888; font-size: 11px; word-break: break-all; }
+  /* セッションIDは1行に収め、入りきらない分は省略する。以前は
+     word-break: break-all で、横幅が足りないときに1文字ずつ縦に
+     折り返してタイトルバー全体が画面の高さまで伸びてしまった。 */
+  #curId { color: #888; font-size: 11px; white-space: nowrap; overflow: hidden;
+           text-overflow: ellipsis; min-width: 0; max-width: 100%; }
   #curCount { color: #888; font-size: 11px; white-space: nowrap; }
   #titleBar input { background: #222; color: #eee; border: 1px solid #444;
            border-radius: 6px; padding: 4px 8px; font-size: 13px; margin-left: auto; width: 170px; }
