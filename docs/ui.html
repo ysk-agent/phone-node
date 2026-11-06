@@ -138,6 +138,7 @@
   <button id="pinSession">ピン留め</button>
   <button id="deleteSession">削除</button>
   <button id="exportMd">書き出し</button>
+  <button id="exportJson">JSON書き出し</button>
   <button id="copyChat">会話をコピー</button>
   <button id="refreshList">一覧更新</button>
 </header>
@@ -1536,6 +1537,37 @@ async function exportConversation() {
   } catch (e) { setStatus("エラー: " + e.message, true); }
 }
 $("exportMd").onclick = exportConversation;
+// 会話を JSON として書き出す: Markdown の書き出しとは別に、
+// サーバから取得したメッセージをそのまま JSON ファイルにする。
+// トークン数やツール呼び出しの状態など、画面に表示しきれない
+// 情報も残るので、後から調べたり別のツールで読んだりできる。
+async function exportConversationJson() {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  try {
+    const messages = await api("/session/" + encodeURIComponent(currentId) + "/message");
+    const now = new Date();
+    const stamp = now.getFullYear() + String(now.getMonth() + 1).padStart(2, "0") +
+      String(now.getDate()).padStart(2, "0") + "-" +
+      String(now.getHours()).padStart(2, "0") + String(now.getMinutes()).padStart(2, "0");
+    const data = {
+      title: $("curTitle").textContent,
+      sessionId: currentId,
+      exportedAt: now.toISOString(),
+      messages,
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = stamp + "-" + (mdSafe($("curTitle").textContent) || "session") + ".json";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    addMsg("sys", "会話を JSON として書き出しました");
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+}
+$("exportJson").onclick = exportConversationJson;
 // 会話全体をコピーする: 書き出し（ファイル保存）とは別に、
 // 現在の会話をそのままの文面でクリップボードに入れる。他の
 // ツールへ貼り付けるときに使う。文面は書き出しと同じ材料
