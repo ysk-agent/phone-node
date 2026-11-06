@@ -301,7 +301,7 @@
     <button id="refreshModels" class="actbtn">モデル更新</button>
     <button id="favModel" class="actbtn">モデルをお気に入りに</button>
     <div class="drawerRow"><input id="modelFilter" type="search" placeholder="モデル名で絞り込み"></div>
-    <button id="themeToggle" class="actbtn">明るい表示</button>
+    <button id="themeToggle" class="actbtn">テーマ: 暗い</button>
     <button id="fontSizeToggle" class="actbtn">文字: 標準</button>
     <button id="mdToggle" class="actbtn">表示: Markdown</button>
     <button id="timeFormatToggle" class="actbtn">時刻表示: 絶対時刻</button>
@@ -362,19 +362,39 @@
 // (version, storage, internals) is assumed.
 const $ = id => document.getElementById(id);
 const chat = $("chat"), statusEl = $("status"), listEl = $("sessionList");
-// 表示テーマの切り替え: 暗い表示（既定）と明るい表示をヘッダーの
-// ボタンで切り替え、選択は localStorage に保存して次回も使う。
+// 表示テーマの切り替え: 暗い表示（既定）と明るい表示に加え、
+// 「自動」では端末の設定（prefers-color-scheme）に従う。屋外
+// では明るく、夜は暗く、と端末側で切り替えている場合に、その
+// たびにこの画面のボタンも押さなくて済む。設定は localStorage
+// に保存して次回も使う。ボタンは 暗い→明るい→自動 と巡回し、
+// 端末の設定が変わったときは自動の間だけ追従する。
 // 明るい表示の配色は body.light の CSS が決める。
 const THEME_KEY = "oc-theme";
-function applyTheme(light) {
-  document.body.classList.toggle("light", light);
-  $("themeToggle").textContent = light ? "暗い表示" : "明るい表示";
+const THEMES = ["dark", "light", "auto"];
+const THEME_LABELS = { dark: "テーマ: 暗い", light: "テーマ: 明るい", auto: "テーマ: 自動" };
+let theme = localStorage.getItem(THEME_KEY) || "dark";
+if (!THEMES.includes(theme)) theme = "dark";
+function systemLight() {
+  try {
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches;
+  } catch (e) { return false; }
 }
-applyTheme(localStorage.getItem(THEME_KEY) === "light");
+function applyTheme() {
+  const light = theme === "light" || (theme === "auto" && systemLight());
+  document.body.classList.toggle("light", light);
+  $("themeToggle").textContent = THEME_LABELS[theme];
+}
+applyTheme();
+try {
+  const mq = window.matchMedia("(prefers-color-scheme: light)");
+  const onChange = () => { if (theme === "auto") applyTheme(); };
+  if (mq.addEventListener) mq.addEventListener("change", onChange);
+  else if (mq.addListener) mq.addListener(onChange);
+} catch (e) { /* 端末設定の追従ができなくても手動の切替は使える */ }
 $("themeToggle").onclick = () => {
-  const light = !document.body.classList.contains("light");
-  try { localStorage.setItem(THEME_KEY, light ? "light" : "dark"); } catch (e) {}
-  applyTheme(light);
+  theme = THEMES[(THEMES.indexOf(theme) + 1) % THEMES.length];
+  try { localStorage.setItem(THEME_KEY, theme); } catch (e) {}
+  applyTheme();
 };
 // 文字サイズの切り替え: 小・標準・大をヘッダーのボタンで巡回し、
 // 選択は localStorage に保存して次回も使う。配色の切り替えと
