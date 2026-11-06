@@ -82,6 +82,11 @@
      フッターの上に浮かせ、表示・非表示は JS が切り替える。 */
   #toLatest { position: fixed; right: 14px; bottom: 84px; display: none;
               box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  /* 「最新へ」と対になる「先頭へ」ボタン。会話を下まで読んで
+     最初の指示や前提を見直したいとき、手でスクロールし直さずに
+     先頭へ戻れる。表示・非表示は JS が切り替える。 */
+  #toTop { position: fixed; right: 14px; bottom: 130px; display: none;
+           box-shadow: 0 2px 8px rgba(0,0,0,.5); }
   /* 明るい表示: 暗い配色のままでは日差しの強い場所で読みにくい
      ため、背景と文字色を入れ替えた配色を用意する。ヘッダーの
      ボタンで切り替え、選択は localStorage に保存する。 */
@@ -145,6 +150,7 @@
 <div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><span id="curCount"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="toggleAllFold" class="copybtn" disabled>すべて展開</button></div>
 <main id="chat"></main>
 <button id="toLatest">最新へ ↓</button>
+<button id="toTop">先頭へ ↑</button>
 <footer>
   <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）"></textarea>
   <span id="charCount"></span>
@@ -1425,13 +1431,19 @@ $("toggleAllFold").onclick = () => {
 // 押すと最新のメッセージまでなめらかに戻る。最下部に近い
 // （120px 以内）ときは隠すので、返信中の自動スクロールを
 // じゃましない。
+// 先頭へボタン: 対になる操作で、会話を下まで読んだあと先頭の
+// 指示や前提を見直すときに使う。先頭から 200px より下がった
+// ときだけ表示し、押すと先頭までなめらかに戻る。
 const toLatestBtn = $("toLatest");
+const toTopBtn = $("toTop");
 function updateToLatest() {
   const away = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
   toLatestBtn.style.display = away > 120 ? "" : "none";
+  toTopBtn.style.display = chat.scrollTop > 200 ? "" : "none";
 }
 chat.addEventListener("scroll", updateToLatest);
 toLatestBtn.onclick = () => chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
+toTopBtn.onclick = () => chat.scrollTo({ top: 0, behavior: "smooth" });
 // Pin or unpin the current session. The list is rebuilt so the
 // session moves to (or out of) the pinned group at the top; the
 // button label follows the new state.
