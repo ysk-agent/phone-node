@@ -165,6 +165,7 @@
   <button id="fontSizeToggle">文字: 標準</button>
   <button id="mdToggle">表示: Markdown</button>
   <button id="soundToggle">通知音: オン</button>
+  <button id="autoScrollToggle">自動スクロール: オン</button>
   <button id="shortcutBtn">ショートカット</button>
   <span id="status">未接続</span>
 </header>
@@ -345,6 +346,22 @@ $("soundToggle").onclick = () => {
   try { localStorage.setItem(SOUND_KEY, soundOn ? "on" : "off"); } catch (e) {}
   updateSoundBtn();
   if (soundOn) { ensureAudio(); if (audioCtx) playTone(880, audioCtx.currentTime, 0.15); }
+};
+// 新しいメッセージや逐次表示の更新が来たときに最下部へ追従する
+// かどうかを切り替える。長い会話をさかのぼって読むときは、追従を
+// 止めておくと応答の途中でも読んでいる位置が動かない。セッションを
+// 開いた直後や送信直後の force での移動と「最新へ」ボタンは、切って
+// いても従来どおり動く。選択は localStorage に保存する。
+const SCROLL_KEY = "oc-autoscroll";
+let autoScrollOn = localStorage.getItem(SCROLL_KEY) !== "off";
+function updateAutoScrollBtn() {
+  $("autoScrollToggle").textContent = "自動スクロール: " + (autoScrollOn ? "オン" : "オフ");
+}
+updateAutoScrollBtn();
+$("autoScrollToggle").onclick = () => {
+  autoScrollOn = !autoScrollOn;
+  try { localStorage.setItem(SCROLL_KEY, autoScrollOn ? "on" : "off"); } catch (e) {}
+  updateAutoScrollBtn();
 };
 $("server").value = localStorage.getItem("oc-server") || $("server").value;
 // 接続先の履歴: 場所ごとに置いたノード（自宅・コワーキングなど）は
@@ -615,9 +632,11 @@ async function autoRefresh() {
 // 新しいメッセージや逐次表示の更新が来ても、最下部近くにいるとき
 // だけ追従する。セッションを開いた直後や送信直後は force で
 // 最下部へ行く。「最新へ」ボタン（120px の目安）と合わせる。
+// 自動スクロールの切り替えがオフのときは、force の移動だけが
+// 最下部へ行き、逐次表示の更新では読んでいる位置を動かさない。
 function scrollChat(force) {
   const away = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
-  if (force || away <= 120) chat.scrollTop = chat.scrollHeight;
+  if (force || (autoScrollOn && away <= 120)) chat.scrollTop = chat.scrollHeight;
 }
 // アシスタントの応答を Markdown として簡易表示する。外部ライブラリ
 // は使わず、まず HTML を逃がしてから見出し・フェンス付きコード・
