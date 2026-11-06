@@ -51,6 +51,11 @@
   .tool { align-self: flex-start; color: #aaa; font-size: 12px; padding: 1px 6px;
           border-left: 2px solid #555; margin-left: 2px; }
   .tool.err { color: #f88; border-color: #8f2d2d; }
+  .tool .tooldetail { display: none; white-space: pre-wrap; word-break: break-word;
+    font-size: 11px; color: #bbb; background: #1b1b1b; border: 1px solid #444;
+    border-radius: 6px; padding: 6px 8px; margin-top: 4px; max-height: 30dvh; overflow-y: auto; }
+  .tool .tooldetail.open { display: block; }
+  .tool .detailbtn { margin-left: 6px; }
   .msg.dimmed, .tool.dimmed { opacity: .35; }
   .msg.match, .tool.match { outline: 1px solid #2d5a8f; }
   .msg.current, .tool.current { outline: 2px solid #e8a33d; }
@@ -84,6 +89,7 @@
   body.light .usage { color: #666; }
   body.light .tool { color: #555; border-color: #999; }
   body.light .tool.err { color: #c00; border-color: #c00; }
+  body.light .tool .tooldetail { color: #444; background: #f0f0f0; border-color: #bbb; }
   body.light footer { background: #fff; border-color: #ddd; }
   body.light footer select { background: #fff; color: #222; border-color: #bbb; }
   body.light #input { background: #fff; color: #222; border-color: #bbb; }
@@ -266,7 +272,7 @@ function onEvent(ev) {
     if (!streamMsgId || p.part.messageID !== streamMsgId) return;
     if (streamWait) { streamWait.remove(); streamWait = null; }
     const el = streamPartLines[p.part.id];
-    if (el) { el.textContent = partLineText(p.part); el.className = partLineClass(p.part); }
+    if (el) updatePartLine(el, p.part);
     else streamPartLines[p.part.id] = addPartLine(p.part);
     scrollChat();
   } else if (ev.type === "session.idle" ||
@@ -452,8 +458,9 @@ function msgTime(m) {
 // One modest row for a non-text part, so tool calls are never
 // silently dropped. A tool call shows its name, the server's title
 // when present, and its state; anything else gets one muted line
-// with its part type. The output of a tool call is not shown, since
-// it can be long and is not the reply itself.
+// with its part type. A tool call's input and output are one 詳細
+// button away (see toolDetailText), cut short so a long result
+// cannot flood the view.
 function toolStatusText(status) {
   return { pending: "待機中", running: "実行中", completed: "完了", error: "エラー" }[status] || status || "";
 }
@@ -472,10 +479,68 @@ function partLineClass(p) {
 function addPartLine(p) {
   const div = document.createElement("div");
   div.className = partLineClass(p);
-  div.textContent = partLineText(p);
+  const text = document.createElement("span");
+  text.textContent = partLineText(p);
+  div.appendChild(text);
+  div._tooltext = text;
+  const btn = document.createElement("button");
+  btn.className = "copybtn detailbtn";
+  btn.textContent = "詳細";
+  btn.style.display = "none";
+  const detail = document.createElement("pre");
+  detail.className = "tooldetail";
+  btn.onclick = () => {
+    const open = detail.classList.toggle("open");
+    btn.textContent = open ? "閉じる" : "詳細";
+  };
+  div.appendChild(btn);
+  div.appendChild(detail);
+  div._detailBtn = btn;
+  div._detail = detail;
+  updatePartLine(div, p);
   chat.appendChild(div);
   scrollChat();
   return div;
+}
+// A tool call's input and output, shown on demand: the row itself
+// stays one short line, and a 詳細 button opens the detail below
+// it. Input is shown as JSON, output as-is; either is cut at
+// 3000 characters so a long tool result cannot flood the view.
+// A part without input or output gets no button.
+const TOOL_DETAIL_MAX = 3000;
+function toolDetailText(p) {
+  const st = p.state || {};
+  const chunks = [];
+  if (st.input !== undefined && st.input !== null) {
+    let s;
+    try { s = JSON.stringify(st.input, null, 2); } catch (e) { s = String(st.input); }
+    chunks.push("入力:\n" + s);
+  }
+  if (st.output !== undefined && st.output !== null && st.output !== "") {
+    chunks.push("出力:\n" + (typeof st.output === "string" ? st.output : JSON.stringify(st.output, null, 2)));
+  }
+  if (!chunks.length) return "";
+  let text = chunks.join("\n\n");
+  if ([...text].length > TOOL_DETAIL_MAX)
+    text = [...text].slice(0, TOOL_DETAIL_MAX).join("") + "\n…（省略）";
+  return text;
+}
+// Refresh a tool (or other non-text) part row in place, keeping the
+// detail open or closed as it was. Used both when a part.updated
+// event arrives and when stored messages are re-synced, so the
+// same row is never duplicated or reset.
+function updatePartLine(div, p) {
+  div.className = partLineClass(p);
+  div._tooltext.textContent = partLineText(p);
+  const detail = toolDetailText(p);
+  if (detail) {
+    div._detail.textContent = detail;
+    div._detailBtn.style.display = "";
+  } else {
+    div._detailBtn.style.display = "none";
+    div._detail.classList.remove("open");
+    div._detailBtn.textContent = "詳細";
+  }
 }
 // Render one stored message: text parts become a bubble (split by
 // tool calls, so a tool row sits between the text around it) and
@@ -506,7 +571,7 @@ function syncPartLines(msg) {
   for (const p of msg.parts || []) {
     if (p.type === "text") continue;
     const el = streamPartLines[p.id];
-    if (el) { el.textContent = partLineText(p); el.className = partLineClass(p); }
+    if (el) updatePartLine(el, p);
     else streamPartLines[p.id] = addPartLine(p);
   }
 }
@@ -1115,7 +1180,7 @@ function applyChatSearch() {
   for (const el of chat.querySelectorAll(".msg, .tool")) {
     el.classList.remove("dimmed", "match", "current");
     if (!q) continue;
-    const text = el._body ? el._body.textContent : el.textContent;
+    const text = el._body ? el._body.textContent : (el._tooltext ? el._tooltext.textContent : el.textContent);
     if (text.toLowerCase().includes(q)) {
       el.classList.add("match");
       chatMatches.push(el);
