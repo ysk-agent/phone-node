@@ -662,11 +662,24 @@ let stagedRevertId = "";
 // 送信中はタイトルにも経過秒を出し、タブ一覧からでもどれくらい
 // 待っているかが分かるようにする（状態欄と同じ秒数）。
 const BASE_TITLE = document.title;
+// タブタイトルに会話のタイトルを出す: タブをいくつも開いている
+// とき、どれがどの会話かタブ一覧から分かるようにする。会話を
+// 選ぶたびに refreshTabTitle が呼ばれ、応答中は setReplyTitle が
+// 経過秒を前に付ける。会話が未選択のときは従来どおり
+// "opencode UI" だけになる。応答中はタイマーが毎秒タイトルを
+// 書き直すので、refreshTabTitle はその間は何もしない。
+function tabTitle() {
+  const t = currentId ? $("curTitle").textContent : "";
+  return t ? t + " - " + BASE_TITLE : BASE_TITLE;
+}
+function refreshTabTitle() {
+  if (!pendingId) document.title = tabTitle();
+}
 document.addEventListener("visibilitychange", () => {
-  if (!document.hidden) document.title = BASE_TITLE;
+  if (!document.hidden) document.title = tabTitle();
 });
 function setReplyTitle(text) {
-  document.title = text ? text + " - " + BASE_TITLE : BASE_TITLE;
+  document.title = text ? text + " - " + tabTitle() : tabTitle();
 }
 let replyStart = 0;
 let replyTimer = null;
@@ -1683,6 +1696,7 @@ function renderListOptions(selectedId) {
       $("curId").textContent = cur.id;
     }
   }
+  refreshTabTitle();
 }
 
 async function refreshList(selectId) {
@@ -1767,6 +1781,7 @@ async function selectSession(id, load) {
   // of them for the title bar; the title itself never contains them.
   $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0].replace(/^(?:📌 |● |✎ )+/g, "") : "(無題)";
   $("curId").textContent = id;
+  refreshTabTitle();
   updateShareUrl();
   if (load) await loadMessages(id);
 }
@@ -2780,6 +2795,7 @@ async function switchServerSession() {
       $("curId").textContent = "";
       updatePinBtn();
       updateShareUrl();
+      refreshTabTitle();
       applyChatSearch();
       updateFoldAllBtn();
     }
