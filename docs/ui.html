@@ -2613,17 +2613,28 @@ $("deleteSnippet").onclick = () => {
   renderSnippets();
   addMsg("sys", "定型文「" + name + "」を削除しました");
 };
+// 定型文の挿入: 音声入力やファイルのドロップと同じく、入力欄の
+// カーソル位置へ入れる。末尾へ追加していた以前の扱いでは、文の
+// 途中に定型文を差し込みたいときに思いどおりにならなかった。
+// 範囲を選んでいればその範囲を置き換え、挿入後はカーソルを定型文
+// の直後に置く。下書きは saveDraft() で保存し、セッションごとの
+// 下書きに合わせる（全体の下書きキーへ直接書いていた以前の扱い
+// では、開いている会話とは別の会話へ下書きが移ってしまった）。
 $("snippetList").onchange = () => {
   const name = $("snippetList").value;
   if (!name) return;
   const s = snippets.find(x => x.name === name);
   if (!s) return;
-  const cur = $("input").value;
-  $("input").value = cur ? cur + "\n" + s.text : s.text;
+  const inputEl = $("input");
+  const start = inputEl.selectionStart ?? inputEl.value.length;
+  const end = inputEl.selectionEnd ?? inputEl.value.length;
+  inputEl.value = inputEl.value.slice(0, start) + s.text + inputEl.value.slice(end);
+  const pos = start + s.text.length;
+  inputEl.setSelectionRange(pos, pos);
   autoResize();
   updateCharCount();
-  localStorage.setItem(DRAFT_KEY, $("input").value);
-  $("input").focus();
+  saveDraft();
+  inputEl.focus();
   $("snippetList").value = "";
 };
 $("newSession").onclick = async () => {
