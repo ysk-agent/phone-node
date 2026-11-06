@@ -657,6 +657,8 @@ let stagedRevertId = "";
 // ことがあるため、他のタブを見ている間に返信が終わっても気づける
 // よう、送信中はタイトルを「応答中…」にし、完了時はタブが隠れて
 // いれば「応答完了」にする。タブに戻ると元のタイトルに戻る。
+// 送信中はタイトルにも経過秒を出し、タブ一覧からでもどれくらい
+// 待っているかが分かるようにする（状態欄と同じ秒数）。
 const BASE_TITLE = document.title;
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) document.title = BASE_TITLE;
@@ -680,6 +682,7 @@ function startReplyTimer() {
     const s = Math.floor((Date.now() - replyStart) / 1000);
     setStatus("応答中… " + s + "秒" +
       (streamChars > 0 ? " · " + streamChars.toLocaleString("en-US") + "文字" : ""));
+    setReplyTitle("応答中… " + s + "秒");
   }, 1000);
 }
 function stopReplyTimer() {
