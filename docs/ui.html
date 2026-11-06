@@ -673,9 +673,16 @@ const BASE_TITLE = document.title;
 // 経過秒を前に付ける。会話が未選択のときは従来どおり
 // "opencode UI" だけになる。応答中はタイマーが毎秒タイトルを
 // 書き直すので、refreshTabTitle はその間は何もしない。
+// 未読の会話がある間は件数を先頭に付ける（「（未読2件）」）：
+// 他のブラウザで届いた新着は一覧を開くまで気づけないので、
+// タブ一覧からでも未読があることが分かるようにする。件数は
+// 一覧の描き直し（30秒ごとの自動取り込みを含む）のたびに
+// refreshTabTitle 経由で付け直される。
 function tabTitle() {
   const t = currentId ? $("curTitle").textContent : "";
-  return t ? t + " - " + BASE_TITLE : BASE_TITLE;
+  const n = unreadCount();
+  const prefix = n ? "（未読" + n + "件） " : "";
+  return prefix + (t ? t + " - " + BASE_TITLE : BASE_TITLE);
 }
 function refreshTabTitle() {
   if (!pendingId) document.title = tabTitle();
@@ -1625,6 +1632,11 @@ function hasNewMessages(s) {
   const seen = seenBySession[s.id];
   if (typeof seen !== "number" || !seen) return false;
   return (s.time?.updated || 0) > seen;
+}
+// 未読の会話の件数: タブタイトルに付ける。開いている会話は
+// hasNewMessages が対象外にしているので、ここでは数えない。
+function unreadCount() {
+  return allSessions.filter(s => hasNewMessages(s)).length;
 }
 
 // すべて既読にする: 開いていない会話に届いた新着の「●」を
