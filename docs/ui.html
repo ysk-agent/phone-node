@@ -1009,6 +1009,12 @@ function usageParts(info) {
 function addUsage(info, seconds) {
   const parts = usageParts(info);
   if (typeof seconds === "number" && seconds >= 0) parts.push("応答時間 " + seconds + "秒");
+  // 生成速度: 出力トークン数を応答時間で割ったもの。無料モデルの
+  // 速さの目安になる。応答時間が0秒（1秒未満の丸め）のときは
+  // 割れないので出さない。中断した応答でも、生成済みの分で割る。
+  if (typeof seconds === "number" && seconds > 0 && info && info.tokens &&
+      typeof info.tokens.output === "number" && info.tokens.output > 0)
+    parts.push("生成速度 約 " + Math.round(info.tokens.output / seconds).toLocaleString("en-US") + " トークン/秒");
   if (!parts.length) return;
   const div = document.createElement("div");
   div.className = "usage";
