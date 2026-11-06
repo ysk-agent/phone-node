@@ -275,6 +275,7 @@
     <button id="rename" class="actbtn">名前変更</button>
     <button id="pinSession" class="actbtn">ピン留め</button>
     <button id="forkSession" class="actbtn">分岐する</button>
+    <button id="unrevertSession" class="actbtn" disabled>巻き戻しを取り消す</button>
     <button id="toggleAllFold" class="actbtn" disabled>すべて展開</button>
     <button id="exportMd" class="actbtn">書き出し</button>
     <button id="exportJson" class="actbtn">JSON書き出し</button>
@@ -325,6 +326,8 @@
 //   DELETE /session/{id}           -> delete a session (with confirmation)
 //   POST  /session/{id}/fork       -> fork a session at its latest message
 //                                    (returns the new Session)
+//   POST  /session/{id}/revert     -> stage a rollback to a message
+//   POST  /session/{id}/unrevert   -> cancel a staged rollback
 //   GET   /config/providers    -> providers with their models (+ defaults)
 //   GET   /provider           -> all providers + connected ids (fallback)
 //   POST  /session/{id}/message    -> send a prompt, wait for the reply
@@ -640,6 +643,12 @@ let allSessions = [];
 // itself stops on the server side.
 let pendingId = "";
 let aborted = false;
+// 巻き戻し中の表示: POST /revert は巻き戻し点を記録するだけで、
+// 会話からの削除は次の送信時に確定する（段階的な巻き戻し）。
+// その間、表示上は巻き戻し点以降を隠す。セッションごとに覚え、
+// 巻き戻し点が履歴になくなれば確定済みとしてやめる。
+let stagedRevertSession = "";
+let stagedRevertId = "";
 
 // 応答にかかった時間の表示: 送信から応答完了までの経過秒数を
 // ステータス欄に1秒ごとに表示し、完了後は使用量の行に残す。
@@ -805,7 +814,7 @@ async function autoRefresh() {
   let messages;
   try { messages = await api("/session/" + encodeURIComponent(currentId) + "/message"); }
   catch (e) { return; }
-  if (messages.length === lastKnownMsgCount) return;
+  if (visibleMessages(messages, currentId).length === lastKnownMsgCount) return;
   const away = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
   await loadMessages(currentId);
   if (away > 120) chat.scrollTop = chat.scrollHeight - away - chat.clientHeight;
@@ -872,9 +881,10 @@ function renderMarkdown(text) {
 // set the time later keep the same layout. An assistant bubble
 // also gets a read-aloud button (when the browser supports speech
 // synthesis), so a reply can be listened to instead of read.
-function addMsg(cls, text, ms) {
+function addMsg(cls, text, ms, msgId) {
   const div = document.createElement("div");
   div.className = "msg " + cls;
+  div._msgId = msgId || "";
   const body = document.createElement("div");
   div.appendChild(body);
   div._body = body;
@@ -921,6 +931,9 @@ function addMsg(cls, text, ms) {
     quoteBtn.textContent = "引用";
     quoteBtn.onclick = () => quoteMsg(div, quoteBtn);
     foot.insertBefore(quoteBtn, btn);
+    // 巻き戻しボタン（ユーザーメッセージのみ）。押すとこの
+    // メッセージ以降を巻き戻す。応答の途中では使えない。
+    if (cls === "user" && msgId) attachRevertBtn(div, msgId);
   }
   if (ms) setMsgTime(div, ms);
   chat.appendChild(div);
@@ -1196,7 +1209,7 @@ function renderMessage(m) {
   let text = "";
   const flush = () => {
     if (!text) return;
-    addMsg(role, text, msgTime(m));
+    addMsg(role, text, msgTime(m), m.info && m.info.id);
     text = "";
     shown = true;
   };
@@ -1577,18 +1590,39 @@ function setMsgCount(n) {
   $("curCount").textContent = typeof n === "number" && n > 0 ? n + "件のメッセージ" : "";
 }
 
+// 巻き戻し中の表示: 取得した履歴から巻き戻し点以降を除く。
+// 巻き戻し点が履歴になければ確定済み（次の送信で消えた）
+// なので段階表示をやめ、取り消しボタンも消す。巻き戻し点は
+// セッションごとに覚えているので、別セッションの履歴には
+// 触れない。
+function visibleMessages(messages, sessionId) {
+  if (!stagedRevertId || stagedRevertSession !== sessionId) return messages;
+  const idx = messages.findIndex(m => m.info && m.info.id === stagedRevertId);
+  if (idx < 0) {
+    stagedRevertId = "";
+    stagedRevertSession = "";
+    updateUnrevertBtn();
+    return messages;
+  }
+  return messages.slice(0, idx);
+}
+function updateUnrevertBtn() {
+  $("unrevertSession").disabled = !(stagedRevertId && stagedRevertSession === currentId);
+}
+
 async function loadMessages(id) {
   const messages = await api("/session/" + encodeURIComponent(id) + "/message");
+  const shown = visibleMessages(messages, id);
   chat.innerHTML = "";
-  for (const m of messages) renderMessage(m);
+  for (const m of shown) renderMessage(m);
   // The latest reply's usage, so reopening a session still shows it,
   // followed by the session-wide totals.
-  const lastAssistant = [...messages].reverse()
+  const lastAssistant = [...shown].reverse()
     .find(m => m.info && m.info.role === "assistant");
   addUsage(lastAssistant && lastAssistant.info);
-  showSessionTotals(messages);
-  setMsgCount(messages.length);
-  lastKnownMsgCount = messages.length;
+  showSessionTotals(shown);
+  setMsgCount(shown.length);
+  lastKnownMsgCount = shown.length;
   scrollChat(true);
   applyChatSearch();
   updateFoldAllBtn();
@@ -1597,6 +1631,7 @@ async function loadMessages(id) {
 async function selectSession(id, load) {
   saveDraft();
   currentId = id;
+  updateUnrevertBtn();
   loadDraftFor(id);
   updateCopyIdBtn();
   $("continueReply").disabled = !id;
@@ -2307,6 +2342,9 @@ $("deleteSession").onclick = async () => {
     delete lastByServer[base()];
     saveLastByServer();
     currentId = "";
+    stagedRevertSession = "";
+    stagedRevertId = "";
+    updateUnrevertBtn();
     lastKnownMsgCount = -1;
     updateCopyIdBtn();
     localStorage.removeItem("oc-last-session");
@@ -2354,6 +2392,66 @@ $("forkSession").onclick = async () => {
     addMsg("sys", "セッションを分岐しました");
     applyChatSearch();
     updateFoldAllBtn();
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+};
+// メッセージまで巻き戻す: ユーザーメッセージのフッターにある
+// 「ここまで戻す」から呼ぶ。サーバへ POST /revert すると、その
+// メッセージとそれ以降の会話が巻き戻し対象になり、ファイルの変更
+// もその時点へ戻る。会話からの削除は次の送信時に確定するため、
+// 表示上はここから先を隠し、巻き戻した文を入力欄へ戻す（TUI の
+// /undo と同じ流れ）。応答中はサーバが巻き戻しを拒むので、その
+// 間は状態欄で断る。
+function attachRevertBtn(div, msgId) {
+  if (!div._foot || div._revertBtn) return;
+  const btn = document.createElement("button");
+  btn.className = "copybtn";
+  btn.textContent = "ここまで戻す";
+  btn.onclick = () => revertToMessage(msgId, div);
+  div._foot.appendChild(btn);
+  div._revertBtn = btn;
+}
+async function revertToMessage(msgId, div) {
+  if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  if (pendingId) { setStatus("応答中は巻き戻せません", true); return; }
+  const text = (div._rawText || div._body.textContent || "").trim();
+  const head = text.length > 40 ? text.slice(0, 40) + "…" : text;
+  if (!confirm("このメッセージ以降を巻き戻しますか？\n「" + head + "」とそれ以降の会話が消え、ファイルの変更も戻ります。")) return;
+  try {
+    await api("/session/" + encodeURIComponent(currentId) + "/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageID: msgId }),
+    });
+    stagedRevertSession = currentId;
+    stagedRevertId = msgId;
+    updateUnrevertBtn();
+    await loadMessages(currentId);
+    await refreshList(currentId);
+    if (text) {
+      $("input").value = text;
+      autoResize();
+      updateCharCount();
+      saveDraft();
+    }
+    addMsg("sys", "ここまで巻き戻しました。巻き戻した文を入力欄へ戻しました。");
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+}
+// 巻き戻しの取り消し: 段階的な巻き戻しをやめ、隠していた会話を
+// 元に戻す。ドロワーのボタンから呼ぶ。巻き戻し中のセッションを
+// 開いているときだけ有効になる。
+$("unrevertSession").onclick = async () => {
+  if (!currentId || !stagedRevertId || stagedRevertSession !== currentId) return;
+  try {
+    await api("/session/" + encodeURIComponent(currentId) + "/unrevert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    stagedRevertSession = "";
+    stagedRevertId = "";
+    updateUnrevertBtn();
+    await loadMessages(currentId);
+    addMsg("sys", "巻き戻しを取り消しました");
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
 // Copy the current session's id, so it can be pasted into API
