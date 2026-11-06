@@ -157,6 +157,7 @@
   <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
   <label>履歴 <select id="serverHistory"><option value="">（履歴から選ぶ）</option></select></label>
   <label>モデル <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select></label>
+  <button id="refreshModels">モデル更新</button>
   <button id="themeToggle">明るい表示</button>
   <button id="fontSizeToggle">文字: 標準</button>
   <button id="mdToggle">表示: Markdown</button>
@@ -1036,7 +1037,7 @@ async function refreshModels() {
       modelEl.appendChild(o);
     }
     if (saved) modelEl.value = saved;
-    return;
+    return false;
   }
   modelEl.innerHTML = "";
   let found = false;
@@ -1064,6 +1065,7 @@ async function refreshModels() {
   modelEl.value = saved;
   if (!modelEl.value && modelEl.options.length) modelEl.selectedIndex = 0;
   localStorage.setItem("oc-model", modelEl.value);
+  return true;
 }
 
 // セッションのピン留め: よく使う会話を一覧の先頭に固定する。
@@ -1853,6 +1855,19 @@ $("serverHistory").onchange = () => {
 $("model").onchange = () => {
   localStorage.setItem("oc-model", $("model").value);
   if (currentId) { modelBySession[currentId] = $("model").value; saveModelBySession(); }
+};
+// モデル一覧の手動更新: サーバ側でモデルが増えたとき、ページを
+// 読み直さなくても一覧を取り直せる。セッション一覧の「一覧更新」
+// と対になる。取得に失敗したときは今の一覧を残し、その旨を表示する。
+$("refreshModels").onclick = async () => {
+  const btn = $("refreshModels");
+  btn.disabled = true;
+  try {
+    const ok = await refreshModels();
+    setStatus(ok ? "モデル一覧を更新しました" :
+      "モデル一覧の取得に失敗しました（今の一覧を残しています）", !ok);
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+  btn.disabled = false;
 };
 
 // キーボードショートカットの一覧: ヘッダーのボタンか「?」キーで
