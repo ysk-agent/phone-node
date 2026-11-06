@@ -387,6 +387,32 @@ if (savedModel && ![...$("model").options].some(o => o.value === savedModel)) {
   $("model").appendChild(o);
 }
 $("model").value = savedModel || $("model").value;
+// セッションごとのモデル: 会話によって使うモデルを変えることが
+// あるため、選んだモデルをセッションごとに localStorage に覚えて
+// おき、そのセッションを開き直したときに復元する。モデルは送信
+// のたびに送るものなので、サーバ側には何も残らない。ピン留めと
+// 同じくブラウザごとの設定で、削除したセッションの記録はその
+// セッションの削除時に消す。
+const MODEL_BY_SESSION_KEY = "oc-model-by-session";
+let modelBySession = {};
+try { modelBySession = JSON.parse(localStorage.getItem(MODEL_BY_SESSION_KEY) || "{}"); } catch (e) { modelBySession = {}; }
+if (!modelBySession || typeof modelBySession !== "object" || Array.isArray(modelBySession)) modelBySession = {};
+function saveModelBySession() {
+  try { localStorage.setItem(MODEL_BY_SESSION_KEY, JSON.stringify(modelBySession)); } catch (e) {}
+}
+function applySessionModel(id) {
+  const m = modelBySession[id];
+  if (!m) return;
+  const modelEl = $("model");
+  if (![...modelEl.options].some(o => o.value === m)) {
+    const o = document.createElement("option");
+    o.value = m;
+    o.textContent = m + "（取得外）";
+    modelEl.appendChild(o);
+  }
+  modelEl.value = m;
+  try { localStorage.setItem("oc-model", m); } catch (e) {}
+}
 let currentId = "";
 // All sessions fetched from the server, kept so the search box can
 // filter the dropdown without another fetch.
@@ -1136,6 +1162,7 @@ async function loadMessages(id) {
 async function selectSession(id, load) {
   currentId = id;
   updateCopyIdBtn();
+  applySessionModel(id);
   localStorage.setItem("oc-last-session", id);
   listEl.value = id;
   const opt = listEl.selectedOptions[0];
@@ -1629,6 +1656,8 @@ $("deleteSession").onclick = async () => {
     await api("/session/" + encodeURIComponent(currentId), { method: "DELETE" });
     pinnedIds = pinnedIds.filter(id => id !== currentId);
     savePinned();
+    delete modelBySession[currentId];
+    saveModelBySession();
     currentId = "";
     lastKnownMsgCount = -1;
     updateCopyIdBtn();
@@ -1774,7 +1803,10 @@ $("serverHistory").onchange = () => {
   $("server").onchange();
   $("serverHistory").value = "";
 };
-$("model").onchange = () => localStorage.setItem("oc-model", $("model").value);
+$("model").onchange = () => {
+  localStorage.setItem("oc-model", $("model").value);
+  if (currentId) { modelBySession[currentId] = $("model").value; saveModelBySession(); }
+};
 
 // キーボードショートカットの一覧: ヘッダーのボタンか「?」キーで
 // 標準の <dialog> を開く。Esc や背景のクリックでも閉じる。
