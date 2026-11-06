@@ -1532,6 +1532,38 @@ $("pinOnlyToggle").onclick = () => {
 };
 updatePinOnlyBtn();
 
+// 新着メッセージのあるセッションの目印: 他のブラウザで送られた
+// 文は30秒ごとの自動取り込みで開いている会話には出るが、開いて
+// いない会話に届いたものは一覧を開くまで気づけない。そこで
+// セッションを開いたときの更新時刻（time.updated）をブラウザ
+// ごとに覚えておき、一覧の取得時にそれより新しくなっていたら
+// 「●」を付ける。ピン留めや下書きの目印と同じくブラウザごとの
+// 表示で、削除したセッションの記録はそのセッションの削除時に
+// 消す。更新時刻はメッセージの作成時刻より後になることがある
+// （実測で約22秒の開きがあった）ため、メッセージの時刻では
+// 代用しない。開いたことのないセッションには記録がないので、
+// 初めて使うときに古い会話がすべて新着に見えることもない。
+const SEEN_KEY = "oc-seen-by-session";
+let seenBySession = {};
+try { seenBySession = JSON.parse(localStorage.getItem(SEEN_KEY) || "{}"); } catch (e) { seenBySession = {}; }
+if (!seenBySession || typeof seenBySession !== "object" || Array.isArray(seenBySession)) seenBySession = {};
+function saveSeenBySession() {
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify(seenBySession)); } catch (e) {}
+}
+function markSessionSeen(id) {
+  if (!id) return;
+  const s = allSessions.find(x => x.id === id);
+  if (!s) return;
+  seenBySession[id] = s.time?.updated || s.time?.created || 0;
+  saveSeenBySession();
+}
+function hasNewMessages(s) {
+  if (!s || s.id === currentId) return false;
+  const seen = seenBySession[s.id];
+  if (typeof seen !== "number" || !seen) return false;
+  return (s.time?.updated || 0) > seen;
+}
+
 // Rebuild the session dropdown from allSessions, keeping only the
 // sessions whose title or id contains the search box text (matched
 // case-insensitively), and, while pin-only display is on, only the
@@ -1541,7 +1573,10 @@ updatePinOnlyBtn();
 // chosen sort order), with a 📌 mark on their titles. A session
 // with an unsent draft (kept per session in localStorage, see
 // draftKey) gets a ✎ mark, so a half-written prompt is visible
-// from the list without opening each session. The count
+// from the list without opening each session. A session with
+// messages that arrived since it was last opened gets a ● mark
+// (see markSessionSeen), so activity in a conversation that is
+// not open is visible from the list. The count
 // beside the list shows how many sessions are shown out of the
 // total, so a search that matches nothing reads as 0件 / 全N件
 // instead of an empty-looking list.
@@ -1572,7 +1607,10 @@ function renderListOptions(selectedId) {
       const d = localStorage.getItem(draftKey(s.id));
       if (d && d.trim()) draftMark = "✎ ";
     } catch (e) { /* 下書きが読めなくても一覧表示には影響しない */ }
-    o.textContent = (isPinned(s.id) ? "📌 " : "") + draftMark + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
+    // A ● mark needs a seen record: a session never opened here
+    // has none, so old sessions do not all look new on first use.
+    const newMark = hasNewMessages(s) ? "● " : "";
+    o.textContent = (isPinned(s.id) ? "📌 " : "") + newMark + draftMark + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
     listEl.appendChild(o);
     shown++;
   }
@@ -1593,6 +1631,10 @@ async function refreshList(selectId) {
   const sessions = await api("/session");
   sessions.sort((a, b) => (b.time?.updated || 0) - (a.time?.updated || 0));
   allSessions = sessions;
+  // Mark the open session seen at its freshly fetched updated time,
+  // so a reply sent here (or a rename or revert, whose handlers all
+  // refresh the list) does not look new after switching away.
+  markSessionSeen(currentId);
   renderListOptions(selectId);
   reachable = true;
   setStatus(lastLatency >= 0 ? "接続済み（" + lastLatency + "ms）" : "接続済み");
@@ -1641,11 +1683,20 @@ async function loadMessages(id) {
   scrollChat(true);
   applyChatSearch();
   updateFoldAllBtn();
+  // Refresh the list so the open session's seen time follows a
+  // message that arrived from another browser while it was open;
+  // without this, switching away would mark it as new even though
+  // its messages were just read here. The refresh also marks the
+  // open session seen (see refreshList). A failure here must not
+  // lose the conversation that already loaded.
+  try { await refreshList(id); } catch (e) { /* 一覧が取れなくても会話表示には影響しない */ }
 }
 
 async function selectSession(id, load) {
   saveDraft();
   currentId = id;
+  // Opening a session marks it seen, so its ● mark (if any) clears.
+  markSessionSeen(id);
   updateUnrevertBtn();
   loadDraftFor(id);
   updateCopyIdBtn();
@@ -1654,7 +1705,9 @@ async function selectSession(id, load) {
   rememberLastSession(id);
   listEl.value = id;
   const opt = listEl.selectedOptions[0];
-  $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0].replace(/^📌 /, "") : "(無題)";
+  // The option text carries the list marks (📌 ● ✎), so strip all
+  // of them for the title bar; the title itself never contains them.
+  $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0].replace(/^(?:📌 |● |✎ )+/g, "") : "(無題)";
   $("curId").textContent = id;
   updateShareUrl();
   if (load) await loadMessages(id);
@@ -2354,6 +2407,8 @@ $("deleteSession").onclick = async () => {
     savePinned();
     delete modelBySession[currentId];
     saveModelBySession();
+    delete seenBySession[currentId];
+    saveSeenBySession();
     try { localStorage.removeItem(draftKey(currentId)); } catch (e) {}
     delete lastByServer[base()];
     saveLastByServer();
@@ -2778,8 +2833,9 @@ const toolMenuEl = document.getElementById("toolMenu");
 const searchBarEl = document.getElementById("searchBar");
 function openDrawer() {
   // Rebuild the list on open so the ✎ draft marks reflect the
-  // latest typing (drafts are saved on every input); the rebuild
-  // only touches the dropdown and keeps the current selection.
+  // latest typing (drafts are saved on every input) and the ● new
+  // marks reflect the latest seen times; the rebuild only touches
+  // the dropdown and keeps the current selection.
   try { renderListOptions(); } catch (e) { /* 一覧がなくても開く */ }
   drawerEl.classList.add("open"); scrimEl.classList.add("open");
 }
