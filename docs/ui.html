@@ -152,6 +152,7 @@
   <label>モデル <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select></label>
   <button id="themeToggle">明るい表示</button>
   <button id="fontSizeToggle">文字: 標準</button>
+  <button id="mdToggle">表示: Markdown</button>
   <button id="soundToggle">通知音: オン</button>
   <button id="shortcutBtn">ショートカット</button>
   <span id="status">未接続</span>
@@ -256,6 +257,25 @@ $("fontSizeToggle").onclick = () => {
   try { localStorage.setItem(FONT_KEY, fontSize); } catch (e) {}
   applyFontSize(fontSize);
 };
+// 応答の表示形式の切り替え: Markdown 表示（既定）とプレーン
+// テキスト表示をヘッダーのボタンで切り替える。簡易表示が崩れて
+// 見えるときや、原文のまま確認したいときに使う。選択は
+// localStorage に保存し、切り替えると表示中の応答も描き直す。
+// setMsgText はこのフラグを見て描き方を決める。
+const MD_KEY = "oc-markdown";
+let markdownOn = localStorage.getItem(MD_KEY) !== "off";
+function applyMdToggle() {
+  $("mdToggle").textContent = markdownOn ? "表示: Markdown" : "表示: テキスト";
+  for (const div of chat.querySelectorAll(".msg.assistant")) {
+    setMsgText(div, div._rawText ?? div._body.textContent);
+  }
+}
+$("mdToggle").onclick = () => {
+  markdownOn = !markdownOn;
+  try { localStorage.setItem(MD_KEY, markdownOn ? "on" : "off"); } catch (e) {}
+  applyMdToggle();
+};
+applyMdToggle();
 // 応答完了を音で知らせる: 無料モデルは応答が遅いことがあるため、
 // 他のタブを見ている間に返信が終わっても気づけるよう、タブが隠れて
 // いるときだけ短い音を鳴らす。タブを見ているときは画面で分かるので
@@ -606,7 +626,7 @@ function addMsg(cls, text, ms) {
 }
 function setMsgText(div, text) {
   div._rawText = text;
-  if (div._rich) {
+  if (div._rich && markdownOn) {
     div._body.innerHTML = renderMarkdown(text);
     addCodeCopyButtons(div);
   } else div._body.textContent = text;
