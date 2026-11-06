@@ -48,6 +48,13 @@
      pre の右上に固定される。 */
   .msg pre { position: relative; }
   .msg pre .codecopy { position: absolute; top: 6px; right: 6px; }
+  /* 長いコードブロックの折りたたみ: 20行を超えるコードは最初は
+     先頭だけを表示し、上のボタンで全体を開く。長いメッセージの
+     折りたたみと同じ見せ方で、下端をフェードさせる。 */
+  .msg pre.codefolded { max-height: 14em; overflow-x: auto; overflow-y: hidden;
+    -webkit-mask-image: linear-gradient(#000 75%, transparent);
+    mask-image: linear-gradient(#000 75%, transparent); }
+  .codefoldbtn { display: block; margin: 6px 0 2px; }
   .msg a { color: #7fb3e8; }
   .md-h1 { font-size: 17px; font-weight: 700; margin: 6px 0 2px; }
   .md-h2 { font-size: 15px; font-weight: 700; margin: 6px 0 2px; }
@@ -803,6 +810,7 @@ function setMsgText(div, text) {
   if (div._rich && markdownOn) {
     div._body.innerHTML = renderMarkdown(text);
     addCodeCopyButtons(div);
+    addCodeFoldButtons(div);
   } else div._body.textContent = text;
   updateFold(div);
 }
@@ -824,6 +832,33 @@ function addCodeCopyButtons(div) {
       setTimeout(() => { btn.textContent = "コピー"; }, 1500);
     };
     pre.appendChild(btn);
+  }
+}
+// 長いコードブロックの折りたたみ: 20行を超えるコードは最初は
+// 先頭だけを表示し、コードの上に置いたボタンで全体を開く。
+// 長いメッセージの折りたたみと同じ考え方で、コピーや会話内
+// 検索は全文が対象のまま。逐次表示中は innerHTML を書き直す
+// たびに付け直しになるので付けず、応答完了後に send() の
+// 後始末で付ける。
+const CODE_FOLD_LINES = 20;
+function addCodeFoldButtons(div) {
+  if (div._streaming) return;
+  for (const pre of div._body.querySelectorAll("pre")) {
+    if (pre._foldBtn) continue;
+    const code = pre.querySelector("code");
+    const text = (code ? code.textContent : pre.textContent).replace(/\n+$/, "");
+    const lines = text.split("\n").length;
+    if (lines <= CODE_FOLD_LINES) continue;
+    const btn = document.createElement("button");
+    btn.className = "copybtn codefoldbtn";
+    btn.textContent = "コードを展開（全" + lines + "行）";
+    btn.onclick = () => {
+      const folded = pre.classList.toggle("codefolded");
+      btn.textContent = folded ? "コードを展開（全" + lines + "行）" : "コードを折りたたむ";
+    };
+    pre.before(btn);
+    pre.classList.add("codefolded");
+    pre._foldBtn = btn;
   }
 }
 // 長いメッセージの折りたたみ: 2000文字を超えるメッセージは最初は
@@ -1489,7 +1524,7 @@ async function send(resendText, record = true) {
     stopReplyTimer();
     pendingId = "";
     // 逐次表示が終わったので、長い応答はここで折りたたみ対象になる。
-    if (streamBubble) { streamBubble._streaming = false; updateFold(streamBubble); }
+    if (streamBubble) { streamBubble._streaming = false; updateFold(streamBubble); addCodeFoldButtons(streamBubble); }
     streamBubble = null;
     streamWait = null;
     streamParts = {};
