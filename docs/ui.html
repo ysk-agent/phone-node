@@ -31,6 +31,9 @@
   #curId { color: #888; font-size: 11px; white-space: nowrap; overflow: hidden;
            text-overflow: ellipsis; min-width: 0; max-width: 100%; }
   #curCount { color: #888; font-size: 11px; white-space: nowrap; }
+  /* セッション一覧の件数: 検索で絞り込んだときは「表示件数 / 全件」
+     とし、絞り込みがなければ全件だけを表示する。 */
+  #sessionCount { color: #888; font-size: 11px; white-space: nowrap; }
   #titleBar input { background: #222; color: #eee; border: 1px solid #444;
            border-radius: 6px; padding: 4px 8px; font-size: 13px; margin-left: auto; width: 170px; }
   #chatSearchCount { color: #888; font-size: 12px; white-space: nowrap; }
@@ -106,7 +109,7 @@
   body.light #status { color: #2a7a2a; }
   body.light #status.err { color: #c00; }
   body.light #titleBar { background: #ececec; border-color: #ddd; }
-  body.light #curId, body.light #curCount, body.light #chatSearchCount { color: #666; }
+  body.light #curId, body.light #curCount, body.light #sessionCount, body.light #chatSearchCount { color: #666; }
   body.light #titleBar input { background: #fff; color: #222; border-color: #bbb; }
   body.light .msg a { color: #1a5fb4; }
   body.light .msg pre { background: #eee; border-color: #ccc; }
@@ -163,6 +166,7 @@
 </header>
 <header>
   <select id="sessionList"><option value="">（セッション一覧）</option></select>
+  <span id="sessionCount"></span>
   <label>検索 <input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"></label>
   <button id="sortSessions">並び替え: 更新順</button>
   <button id="newSession">新規</button>
@@ -1057,7 +1061,10 @@ updateSortBtn();
 // case-insensitively). The selected session is always shown, so
 // filtering never loses the current selection or a just-created
 // session passed as selectedId. Pinned sessions come first (in the
-// chosen sort order), with a 📌 mark on their titles.
+// chosen sort order), with a 📌 mark on their titles. The count
+// beside the list shows how many sessions are shown out of the
+// total, so a search that matches nothing reads as 0件 / 全N件
+// instead of an empty-looking list.
 function renderListOptions(selectedId) {
   const want = selectedId ?? currentId;
   const q = $("sessionSearch").value.trim().toLowerCase();
@@ -1069,6 +1076,7 @@ function renderListOptions(selectedId) {
   const sorted = [...allSessions].sort((a, b) =>
     (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0) ||
     sessionSortTime(b) - sessionSortTime(a));
+  let shown = 0;
   for (const s of sorted) {
     if (q && s.id !== want &&
         !(s.title || "").toLowerCase().includes(q) &&
@@ -1077,7 +1085,10 @@ function renderListOptions(selectedId) {
     o.value = s.id;
     o.textContent = (isPinned(s.id) ? "📌 " : "") + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
     listEl.appendChild(o);
+    shown++;
   }
+  const total = allSessions.length;
+  $("sessionCount").textContent = total ? (shown < total ? shown + "件 / 全" + total + "件" : "全" + total + "件") : "";
   updatePinBtn();
   if (want && [...listEl.options].some(o => o.value === want)) {
     listEl.value = want;
