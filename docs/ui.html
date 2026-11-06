@@ -254,7 +254,6 @@
     <button id="resend" disabled>再送信</button>
     <button id="editResend">編集して再送</button>
     <button id="continueReply" disabled>続きを生成</button>
-    <button id="regenReply" disabled>応答を再生成</button>
     <button id="clearInput">入力をクリア</button>
     <button id="voiceInput">音声入力</button>
     <button id="openChatSearch">会話内検索</button>
@@ -1627,7 +1626,6 @@ async function loadMessages(id) {
   scrollChat(true);
   applyChatSearch();
   updateFoldAllBtn();
-  $("regenReply").disabled = !canRegen();
 }
 
 async function selectSession(id, load) {
@@ -1637,7 +1635,6 @@ async function selectSession(id, load) {
   loadDraftFor(id);
   updateCopyIdBtn();
   $("continueReply").disabled = !id;
-  $("regenReply").disabled = true;
   applySessionModel(id);
   rememberLastSession(id);
   listEl.value = id;
@@ -1754,7 +1751,6 @@ async function send(resendText, record = true) {
   $("send").disabled = true;
   $("resend").disabled = true;
   $("continueReply").disabled = true;
-  $("regenReply").disabled = true;
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
   $("forkSession").disabled = true;
@@ -1816,7 +1812,6 @@ async function send(resendText, record = true) {
     $("send").disabled = false;
     $("resend").disabled = !lastSentText;
     $("continueReply").disabled = !currentId;
-    $("regenReply").disabled = !canRegen();
     $("abort").disabled = true;
     $("deleteSession").disabled = false;
     $("forkSession").disabled = false;
@@ -1851,58 +1846,6 @@ $("editResend").onclick = () => {
 // 対象にも触れない。セッション未選択のときは送る相手がないので
 // 何もしない（新しいセッションに「続けてください」は意味がない）。
 $("continueReply").onclick = () => { if (currentId) send("続けてください", false); };
-// 応答を再生成: 最後の応答が気に入らないとき、直前のユーザーメッセージと
-// 同じ文でもう一度生成させる。巻き戻し（POST /revert）で直前の
-// ユーザーメッセージ以降を巻き戻し対象にし、そのまま同じ文を送るので、
-// 古い応答はその送信で会話から消える。ファイルの変更も巻き戻るため、
-// 確認ダイアログを出す。応答中はサーバが巻き戻しを拒むので断る。
-// 巻き戻しは送信で確定するので、送信後に古いメッセージが履歴から
-// 消えたことを確認して段階表示を片付ける（消えていなければ取り消し
-// ボタンを残し、次に履歴を開いたときの自動片付けに任せる）。
-function canRegen() {
-  if (!currentId || pendingId) return false;
-  const assistants = chat.querySelectorAll(".msg.assistant");
-  const last = assistants[assistants.length - 1];
-  if (!last) return false;
-  let prev = last.previousElementSibling;
-  while (prev && !prev.classList.contains("user")) prev = prev.previousElementSibling;
-  return !!(prev && prev._msgId);
-}
-$("regenReply").onclick = async () => {
-  if (pendingId) { setStatus("応答中は再生成できません", true); return; }
-  if (!currentId) { setStatus("セッションが未選択です", true); return; }
-  const assistants = chat.querySelectorAll(".msg.assistant");
-  const lastAssistant = assistants[assistants.length - 1];
-  if (!lastAssistant) { setStatus("再生成できる応答がありません", true); return; }
-  let userDiv = lastAssistant.previousElementSibling;
-  while (userDiv && !userDiv.classList.contains("user")) userDiv = userDiv.previousElementSibling;
-  if (!userDiv || !userDiv._msgId) { setStatus("再生成できる応答がありません", true); return; }
-  const text = (userDiv._rawText || userDiv._body.textContent || "").trim();
-  if (!text) { setStatus("再生成できる応答がありません", true); return; }
-  const head = text.length > 40 ? text.slice(0, 40) + "…" : text;
-  if (!confirm("最後の応答を破棄して、同じプロンプトでもう一度生成しますか？\n「" + head + "」とそれ以降の会話が消え、ファイルの変更も戻ります。")) return;
-  const oldId = userDiv._msgId;
-  try {
-    await api("/session/" + encodeURIComponent(currentId) + "/revert", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageID: oldId }),
-    });
-    stagedRevertSession = currentId;
-    stagedRevertId = oldId;
-    updateUnrevertBtn();
-    await loadMessages(currentId);
-    await send(text);
-    try {
-      const messages = await api("/session/" + encodeURIComponent(currentId) + "/message");
-      if (!messages.some(m => m.info && m.info.id === oldId)) {
-        stagedRevertId = "";
-        stagedRevertSession = "";
-        updateUnrevertBtn();
-      }
-    } catch (e) { /* keep the staged revert; a later reload clears it */ }
-  } catch (e) { setStatus("エラー: " + e.message, true); }
-};
 // 入力欄を空にする: 長い下書きを書き直したいとき、全文を選択して
 // 消す代わりに1回で空にできる。下書きも消えるので、ページを開き
 // 直しても復元されない。送信履歴には触れない。
