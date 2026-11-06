@@ -85,6 +85,11 @@
   .msg.dimmed, .tool.dimmed { opacity: .35; }
   .msg.match, .tool.match { outline: 1px solid #2d5a8f; }
   .msg.current, .tool.current { outline: 2px solid #e8a33d; }
+  /* 会話内検索の一致箇所: メッセージ全体の枠だけでは長い文の
+     どこに語があるか分からないため、一致した語そのものを塗る。
+     明るい表示では背景が白に近いので、少し濃い黄色にする。 */
+  mark.search-hl { background: #8a6d1a; color: #fff; border-radius: 2px; padding: 0 1px; }
+  body.light mark.search-hl { background: #ffe08a; color: #111; }
   /* 会話をさかのぼって読んでいるときだけ出る「最新へ」ボタンと、
      対になる「先頭へ」ボタン。会話エリアの右下に浮かせ、表示・
      非表示は JS が切り替える。 */
@@ -358,6 +363,9 @@ function applyMdToggle() {
   for (const div of chat.querySelectorAll(".msg.assistant")) {
     setMsgText(div, div._rawText ?? div._body.textContent);
   }
+  // 描き直しで検索のハイライトが消えるため、検索中は付け直す。
+  // 検索欄が空のときは呼ばない（読み込み直後にもここを通るため）。
+  if ($("chatSearch").value.trim()) applyChatSearch();
 }
 $("mdToggle").onclick = () => {
   markdownOn = !markdownOn;
@@ -1918,6 +1926,43 @@ $("sessionSearch").addEventListener("input", () => renderListOptions());
 // 一致は枠を太くして示し、件数表示は「何番目/全件」になる。
 let chatMatches = [];
 let chatMatchIndex = -1;
+// 会話内検索の一致箇所のハイライト: 一致した語そのものを <mark>
+// で塗る。枠だけでは長いメッセージのどこに語があるか分からない
+// ため。Markdown 表示の描き直し（setMsgText）は innerHTML を作り
+// 直すので、ハイライトは applyChatSearch が毎回付け直す。
+// テキストノードだけをたどるので、描画済みの HTML 構造は壊れ
+// ない。ボタン（コードのコピーボタンなど）の文言は対象にしない。
+function clearSearchHighlights(root) {
+  for (const m of root.querySelectorAll("mark.search-hl")) {
+    m.replaceWith(document.createTextNode(m.textContent));
+  }
+  root.normalize();
+}
+function highlightSearchText(root, q) {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    if (node.parentNode.closest("button")) continue;
+    const text = node.nodeValue;
+    const lower = text.toLowerCase();
+    let idx = lower.indexOf(q);
+    if (idx < 0) continue;
+    const frag = document.createDocumentFragment();
+    let pos = 0;
+    while (idx >= 0) {
+      if (idx > pos) frag.appendChild(document.createTextNode(text.slice(pos, idx)));
+      const mark = document.createElement("mark");
+      mark.className = "search-hl";
+      mark.textContent = text.slice(idx, idx + q.length);
+      frag.appendChild(mark);
+      pos = idx + q.length;
+      idx = lower.indexOf(q, pos);
+    }
+    if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+    node.parentNode.replaceChild(frag, node);
+  }
+}
 function applyChatSearch() {
   const q = $("chatSearch").value.trim().toLowerCase();
   chatMatches = [];
@@ -1925,10 +1970,13 @@ function applyChatSearch() {
   let found = 0;
   for (const el of chat.querySelectorAll(".msg, .tool")) {
     el.classList.remove("dimmed", "match", "current");
+    const container = el._body ? el._body : (el._tooltext ? el._tooltext : el);
+    clearSearchHighlights(container);
     if (!q) continue;
     const text = el._body ? el._body.textContent : (el._tooltext ? el._tooltext.textContent : el.textContent);
     if (text.toLowerCase().includes(q)) {
       el.classList.add("match");
+      highlightSearchText(container, q);
       chatMatches.push(el);
       found++;
     }
