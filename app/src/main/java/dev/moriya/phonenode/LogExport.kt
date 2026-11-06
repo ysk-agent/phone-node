@@ -104,6 +104,8 @@ object LogExport {
             append("proxyListening: ").append(NodeState.proxyListening).append('\n')
             append("prootRunning: ").append(NodeState.prootRunning).append('\n')
             append("lastError: ").append(NodeState.lastError ?: "-").append('\n')
+            append("buildId: ").append(UpdateManager.ownBuildId(context)).append('\n')
+            append("updateStatus: ").append(NodeState.updateStatus).append('\n')
             append("rootfs/bin/sh: ").append(File(dir, "rootfs/bin/sh").exists()).append('\n')
             append("setup marker: ")
                 .append(File(dir, "rootfs/opt/phonenode/.setup-done").exists()).append('\n')

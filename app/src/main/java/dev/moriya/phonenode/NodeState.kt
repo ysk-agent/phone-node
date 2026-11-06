@@ -1,5 +1,6 @@
 package dev.moriya.phonenode
 
+import android.content.Intent
 import java.util.concurrent.atomic.AtomicLong
 
 /**
@@ -24,6 +25,28 @@ object NodeState {
     /** Most recent caught subsystem failure, one line, for the UI. */
     @Volatile
     var lastError: String? = null
+
+    /** Human-readable state of the Drive self-update check. */
+    @Volatile
+    var updateStatus: String = "-"
+
+    /** True while the main screen is in the foreground. The platform
+     * tends to demand an install confirmation when the app being
+     * updated is on screen, so the updater defers while this is set. */
+    @Volatile
+    var uiOpen: Boolean = false
+
+    /** Installer confirmation intent for an update that the platform
+     * refused to apply without user action, kept in memory so the main
+     * screen can offer an install button. The notification posted by
+     * UpdateReceiver is the durable copy (it survives process death);
+     * this field is only a convenience while the process lives. */
+    @Volatile
+    var pendingConfirmIntent: Intent? = null
+
+    /** Build id that [pendingConfirmIntent] belongs to; 0 when none. */
+    @Volatile
+    var pendingConfirmBuild: Long = 0L
 
     fun uptimeMs(nowMs: Long): Long =
         if (serviceStartedAtMs == 0L) 0L else nowMs - serviceStartedAtMs

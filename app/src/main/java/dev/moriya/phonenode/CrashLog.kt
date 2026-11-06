@@ -44,6 +44,17 @@ object CrashLog {
         }
     }
 
+    /** Append a plain note (no stack) to the same diagnostics log. */
+    fun note(context: Context, where: String, message: String) {
+        try {
+            val file = File(context.applicationContext.filesDir, "errors.log")
+            if (file.length() > 64 * 1024) file.writeText("")
+            file.appendText("${now()} [$where] $message\n")
+        } catch (e: Exception) {
+            // Diagnostics must never mask the original failure.
+        }
+    }
+
     fun record(context: Context, where: String, error: Throwable) {
         try {
             val file = File(context.applicationContext.filesDir, "errors.log")
@@ -56,7 +67,10 @@ object CrashLog {
         } catch (e: Exception) {
             // Diagnostics must never mask the original failure.
         }
-        NodeState.lastError = "$where: ${error.javaClass.simpleName}: ${error.message}"
+        // The timestamp is part of the one-line summary: without it a
+        // reader cannot tell a fresh failure from a stale one.
+        NodeState.lastError =
+            "${now()} [$where] ${error.javaClass.simpleName}: ${error.message}"
     }
 
     /** Everything the main screen shows under the live status. */

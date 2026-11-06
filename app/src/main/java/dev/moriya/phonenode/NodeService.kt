@@ -75,10 +75,13 @@ class NodeService : Service() {
                 }
                 NodeState.heartbeat.incrementAndGet()
                 ticks++
-                // Debug-log export: once shortly after start, then
-                // every 5 minutes, to the user-picked folder (Drive).
-                if (ticks == 1L || ticks % 30L == 0L) {
+                // Development cadence (Moriya, 2026-11-06): while the
+                // bring-up loop is running, log export and the Drive
+                // update check both run every 3 ticks = 30 seconds.
+                // Relax both to minutes once the node is stable.
+                if (ticks == 1L || ticks % 3L == 0L) {
                     LogExport.export(this@NodeService)
+                    UpdateManager.checkAsync(this@NodeService)
                 }
                 // Mutual watchdog: every 10 minutes, make sure the
                 // helper's service is started. Starting an already

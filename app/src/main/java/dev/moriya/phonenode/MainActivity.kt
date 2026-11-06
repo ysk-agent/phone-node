@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.View
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -23,10 +24,12 @@ import kotlin.concurrent.thread
 class MainActivity : Activity() {
 
     private lateinit var statusLabel: TextView
+    private lateinit var installButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashLog.install(this)
+        requestNotificationPermissionIfNeeded()
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -35,6 +38,29 @@ class MainActivity : Activity() {
 
         statusLabel = TextView(this)
         layout.addView(statusLabel)
+
+        // Fallback route for an install the platform would not apply
+        // without confirmation: launching the stored intent from this
+        // activity is always permitted, unlike the receiver's launch,
+        // which background-activity-launch restrictions silently drop
+        // while the node sits unattended. Shown only while a
+        // confirmation is outstanding (refreshStatus toggles it).
+        installButton = Button(this).apply {
+            text = "アップデートをインストール"
+            visibility = View.GONE
+            setOnClickListener {
+                val confirm = NodeState.pendingConfirmIntent
+                if (confirm != null) {
+                    try {
+                        startActivity(confirm)
+                    } catch (e: Exception) {
+                        CrashLog.record(this@MainActivity, "update-confirm-ui", e)
+                    }
+                }
+                refreshStatus()
+            }
+        }
+        layout.addView(installButton)
 
         layout.addView(Button(this).apply {
             text = "ノードサービスを開始"
@@ -73,13 +99,39 @@ class MainActivity : Activity() {
             }
         })
 
+        layout.addView(Button(this).apply {
+            text = "更新元フォルダを選ぶ（Drive の phone-node）"
+            setOnClickListener {
+                startActivityForResult(UpdateManager.pickerIntent(), REQ_PICK_UPDATE_FOLDER)
+            }
+        })
+
+        layout.addView(Button(this).apply {
+            text = "今すぐ更新を確認"
+            setOnClickListener {
+                UpdateManager.checkAsync(this@MainActivity)
+                refreshStatus()
+            }
+        })
+
+        layout.addView(Button(this).apply {
+            text = "「不明なアプリのインストール」許可を開く"
+            setOnClickListener {
+                val intent = Intent(
+                    Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                    Uri.parse("package:$packageName")
+                )
+                startActivity(intent)
+            }
+        })
+
         setContentView(ScrollView(this).apply { addView(layout) })
     }
 
     @Deprecated("startActivityForResult is sufficient for this single picker")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQ_PICK_LOG_FOLDER || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
             contentResolver.takePersistableUriPermission(
@@ -87,20 +139,46 @@ class MainActivity : Activity() {
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or
                     Intent.FLAG_GRANT_WRITE_URI_PERMISSION
             )
-            LogExport.setTreeUri(this, uri)
-            thread(name = "log-export-first") { LogExport.export(this@MainActivity) }
+            when (requestCode) {
+                REQ_PICK_LOG_FOLDER -> {
+                    LogExport.setTreeUri(this, uri)
+                    thread(name = "log-export-first") { LogExport.export(this@MainActivity) }
+                }
+                REQ_PICK_UPDATE_FOLDER -> {
+                    UpdateManager.setTreeUri(this, uri)
+                    UpdateManager.checkAsync(this)
+                }
+            }
         } catch (e: Exception) {
-            CrashLog.record(this, "log-folder-pick", e)
+            CrashLog.record(this, "folder-pick", e)
         }
         refreshStatus()
     }
 
     override fun onResume() {
         super.onResume()
+        NodeState.uiOpen = true
         refreshStatus()
     }
 
+    override fun onPause() {
+        NodeState.uiOpen = false
+        super.onPause()
+    }
+
     private fun refreshStatus() {
+        val pendingBuild = NodeState.pendingConfirmBuild
+        if (NodeState.pendingConfirmIntent != null) {
+            installButton.visibility = View.VISIBLE
+            installButton.text =
+                if (pendingBuild > 0L) {
+                    "アップデートをインストール（build $pendingBuild）"
+                } else {
+                    "アップデートをインストール"
+                }
+        } else {
+            installButton.visibility = View.GONE
+        }
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         val exempt = powerManager.isIgnoringBatteryOptimizations(packageName)
         val started = NodeState.serviceStartedAtMs
@@ -114,6 +192,11 @@ class MainActivity : Activity() {
             append("ログ保存先: ")
                 .append(if (LogExport.hasDestination(this@MainActivity)) "設定済み" else "未設定")
                 .append("\n")
+            append("更新元: ")
+                .append(if (UpdateManager.hasSource(this@MainActivity)) "設定済み" else "未設定")
+                .append("（この端末の build ").append(UpdateManager.ownBuildId(this@MainActivity))
+                .append("）\n")
+            append("更新状態: ").append(NodeState.updateStatus).append("\n")
             NodeState.lastError?.let { append("最後の失敗: ").append(it).append("\n") }
             val diagnostics = CrashLog.readDiagnostics(this@MainActivity)
             if (diagnostics.isNotBlank()) {
@@ -124,6 +207,24 @@ class MainActivity : Activity() {
 
     companion object {
         private const val REQ_PICK_LOG_FOLDER = 42
+        private const val REQ_PICK_UPDATE_FOLDER = 43
+        private const val REQ_NOTIFICATIONS = 44
+    }
+
+    /** The update-confirmation notification is the primary way an
+     * unattended node reaches the user, and on Android 13+ it needs
+     * this runtime permission. Ask once from the screen; if declined,
+     * the in-app install button above still works. */
+    private fun requestNotificationPermissionIfNeeded() {
+        if (android.os.Build.VERSION.SDK_INT < 33) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS),
+                REQ_NOTIFICATIONS
+            )
+        }
     }
 
     private fun requestBatteryExemption() {

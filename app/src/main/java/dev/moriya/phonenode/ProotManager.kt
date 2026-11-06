@@ -89,11 +89,23 @@ class ProotManager(context: Context) {
     // -- setup ------------------------------------------------------------
 
     private fun ensureSetup() {
-        if (File(overlayDir, ".setup-done").exists()) return
-        if (!File(rootfsDir, "bin/sh").exists()) {
-            extractRootfs()
-        }
+        // The overlay scripts must track the installed APK even after
+        // setup has completed: run-node.sh is re-read on every service
+        // start, so an app update that changes a script has to land
+        // here, not only in the first-time setup path. (Before this
+        // fix, a node whose setup was done kept running the old
+        // run-node.sh forever, and script changes in new builds
+        // silently never applied.)
         copyOverlay()
+        if (File(overlayDir, ".setup-done").exists()) return
+        // Extraction completeness is judged by its own marker, not by
+        // the presence of bin/sh: a half-extracted tree can already
+        // contain bin/sh and would poison every later step.
+        val extractMarker = File(filesDir, ".extract-done")
+        if (!extractMarker.exists()) {
+            extractRootfs()
+            extractMarker.writeText("done")
+        }
         writeResolvConf()
         val setup = startProot(
             listOf("/bin/sh", "/opt/phonenode/node-setup.sh"),
@@ -127,16 +139,35 @@ class ProotManager(context: Context) {
                         Os.symlink(entry.linkName, dest.absolutePath)
                     }
                     entry.isLink -> {
-                        // Hard link to another extracted file.
+                        // Hard link to another extracted file. The
+                        // kernel's protected-hardlinks rule refuses
+                        // links to files the caller cannot both read
+                        // and write (Debian ships read-only targets),
+                        // so a refused link falls back to a plain copy.
                         val targetName = entry.linkName.removePrefix("./").removePrefix("/")
                         val target = File(rootfsDir, targetName)
                         dest.parentFile?.mkdirs()
-                        if (target.exists() && !dest.exists()) {
-                            Os.link(target.absolutePath, dest.absolutePath)
+                        if (dest.exists() || isSymlink(dest)) dest.delete()
+                        if (target.exists()) {
+                            try {
+                                Os.link(target.absolutePath, dest.absolutePath)
+                            } catch (e: Exception) {
+                                target.inputStream().use { input ->
+                                    FileOutputStream(dest).use { out -> input.copyTo(out) }
+                                }
+                                try {
+                                    Os.chmod(dest.absolutePath, entry.mode and 0b111_111_111)
+                                } catch (ignored: Exception) {
+                                    // Mode is cosmetic for a copied link.
+                                }
+                            }
                         }
                     }
                     entry.isFile -> {
                         dest.parentFile?.mkdirs()
+                        // Never write through a symlink left by an
+                        // earlier partial extraction.
+                        if (isSymlink(dest)) dest.delete()
                         FileOutputStream(dest).use { out ->
                             tar.copyTo(out)
                         }
@@ -187,6 +218,11 @@ class ProotManager(context: Context) {
         tmpDir.mkdirs()
         val command = mutableListOf(
             "$nativeLibDir/libproot.so",
+            // This app's SELinux domain refuses hard links inside its
+            // data area, which dpkg needs (its status backup is a
+            // link). proot's link2symlink extension transparently
+            // turns guest hard links into symlinks instead.
+            "--link2symlink",
             "-0",
             "-r", rootfsDir.absolutePath,
             "-b", "/dev",
