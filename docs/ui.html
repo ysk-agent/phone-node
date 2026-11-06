@@ -196,6 +196,7 @@
   <span id="charCount"></span>
   <button id="send">送信</button>
   <button id="resend" disabled>再送信</button>
+  <button id="clearInput">入力をクリア</button>
   <button id="abort" disabled>中断</button>
   <button id="enterModeToggle">送信キー: Enter</button>
   <select id="snippetList"><option value="">（定型文）</option></select>
@@ -1298,6 +1299,17 @@ async function send(resendText) {
 
 $("send").onclick = () => send();
 $("resend").onclick = () => { if (lastSentText) send(lastSentText); };
+// 入力欄を空にする: 長い下書きを書き直したいとき、全文を選択して
+// 消す代わりに1回で空にできる。下書きも消えるので、ページを開き
+// 直しても復元されない。送信履歴には触れない。
+$("clearInput").onclick = () => {
+  $("input").value = "";
+  localStorage.removeItem(DRAFT_KEY);
+  historyIndex = -1;
+  autoResize();
+  updateCharCount();
+  $("input").focus();
+};
 $("abort").onclick = abortReply;
 // 送信キーの切り替え: Enter で送信するか、Ctrl+Enter で送信する
 // かをフッターのボタンで切り替える。長いプロンプトを書くときは
