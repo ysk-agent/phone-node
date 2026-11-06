@@ -50,6 +50,10 @@
            display: flex; gap: 8px; }
   #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
            padding: 9px; font-size: 14px; resize: none; max-height: 40dvh; overflow-y: auto; }
+  /* 会話をさかのぼって読んでいるときだけ出る「最新へ」ボタン。
+     フッターの上に浮かせ、表示・非表示は JS が切り替える。 */
+  #toLatest { position: fixed; right: 14px; bottom: 84px; display: none;
+              box-shadow: 0 2px 8px rgba(0,0,0,.5); }
 </style>
 </head>
 <body>
@@ -69,6 +73,7 @@
 </header>
 <div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span></div>
 <main id="chat"></main>
+<button id="toLatest">最新へ ↓</button>
 <footer>
   <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）"></textarea>
   <button id="send">送信</button>
@@ -789,6 +794,17 @@ function applyChatSearch() {
   $("chatSearchCount").textContent = q ? found + "件" : "";
 }
 $("chatSearch").addEventListener("input", applyChatSearch);
+// 最新へボタン: 会話をさかのぼって読んでいるときだけ表示し、
+// 押すと最新のメッセージまでなめらかに戻る。最下部に近い
+// （120px 以内）ときは隠すので、返信中の自動スクロールを
+// じゃましない。
+const toLatestBtn = $("toLatest");
+function updateToLatest() {
+  const away = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  toLatestBtn.style.display = away > 120 ? "" : "none";
+}
+chat.addEventListener("scroll", updateToLatest);
+toLatestBtn.onclick = () => chat.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
 $("rename").onclick = async () => {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
   const title = prompt("新しいタイトル", $("curTitle").textContent);
