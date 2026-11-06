@@ -62,6 +62,9 @@
   .user { align-self: flex-end; background: #2d5a8f; }
   .assistant { align-self: flex-start; background: #242424; border: 1px solid #383838; }
   .sys { align-self: center; color: #999; font-size: 12px; }
+  /* 日付の区切り線: 日をまたぐ会話で日付が変わるところに置く
+     中央寄せの一行。会話の泡ではないので背景は付けない。 */
+  .dateline { align-self: center; color: #999; font-size: 12px; padding: 2px 0; }
   .msgtime { font-size: 11px; color: #bbb; opacity: .75; margin-top: 4px; text-align: right; }
   .msgfoot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
   .msgfoot .msgtime { margin-top: 0; }
@@ -188,6 +191,7 @@
   body.light .user { background: #2d5a8f; color: #fff; }
   body.light .assistant { background: #fff; border-color: #ddd; color: #222; }
   body.light .sys { color: #666; }
+  body.light .dateline { color: #666; }
   body.light .msgtime { color: #666; }
   body.light .copybtn { border-color: #999; color: #555; }
   body.light .usage { color: #666; }
@@ -1187,6 +1191,36 @@ function setMsgTime(div, ms) {
 function msgTime(m) {
   return m && m.info && m.info.time ? m.info.time.created : 0;
 }
+// Date dividers: a conversation spanning several days gets one
+// centered date line where the day changes, so the boundary is
+// visible without opening each message's time. The day key is the
+// local calendar date; a message without a timestamp, or with
+// nothing to show, gets no divider. lastDateKey is reset whenever
+// the chat view is cleared, so the first message of a newly
+// opened conversation always starts with its date.
+let lastDateKey = "";
+function dayKey(ms) {
+  const d = new Date(ms);
+  return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
+}
+function fmtDate(ms) {
+  return new Date(ms).toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
+}
+function addDateLine(ms) {
+  const div = document.createElement("div");
+  div.className = "dateline";
+  div.textContent = fmtDate(ms);
+  chat.appendChild(div);
+  scrollChat();
+  return div;
+}
+function ensureDateLine(ms) {
+  if (!ms) return;
+  const key = dayKey(ms);
+  if (key === lastDateKey) return;
+  lastDateKey = key;
+  addDateLine(ms);
+}
 // One modest row for a non-text part, so tool calls are never
 // silently dropped. A tool call shows its name, the server's title
 // when present, and its state; anything else gets one muted line
@@ -1280,11 +1314,18 @@ function updatePartLine(div, p) {
 // anything was shown.
 function renderMessage(m) {
   const role = m.info && m.info.role === "user" ? "user" : "assistant";
+  const ms = msgTime(m);
+  // A date divider before the first shown row of a message whose
+  // day differs from the previous message's day. Messages with
+  // nothing to show (empty text only) get none, so a divider is
+  // never left standing alone.
+  const hasContent = (m.parts || []).some(p => p.type !== "text" || p.text);
+  if (ms && hasContent) ensureDateLine(ms);
   let shown = false;
   let text = "";
   const flush = () => {
     if (!text) return;
-    addMsg(role, text, msgTime(m), m.info && m.info.id);
+    addMsg(role, text, ms, m.info && m.info.id);
     text = "";
     shown = true;
   };
@@ -1859,6 +1900,7 @@ async function loadMessages(id) {
   const messages = await api("/session/" + encodeURIComponent(id) + "/message");
   const shown = visibleMessages(messages, id);
   chat.innerHTML = "";
+  lastDateKey = "";
   for (const m of shown) renderMessage(m);
   // The latest reply's usage, so reopening a session still shows it,
   // followed by the session-wide totals.
@@ -2018,7 +2060,9 @@ async function send(resendText, record = true) {
   aborted = false;
   stopSpeaking();
   ensureAudio();
-  addMsg("user", text, Date.now());
+  const now = Date.now();
+  ensureDateLine(now);
+  addMsg("user", text, now);
   scrollChat(true);
   const wait = addMsg("sys", "応答待ち…");
   try {
@@ -2481,6 +2525,7 @@ $("newSession").onclick = async () => {
   try {
     currentId = "";
     chat.innerHTML = "";
+    lastDateKey = "";
     setMsgCount(0);
     const id = await ensureSession();
     addMsg("sys", "新しいセッションを開始しました");
@@ -2677,6 +2722,7 @@ $("deleteSession").onclick = async () => {
     updateCopyIdBtn();
     localStorage.removeItem("oc-last-session");
     chat.innerHTML = "";
+    lastDateKey = "";
     setMsgCount(0);
     $("curTitle").textContent = "（セッション未選択）";
     $("curId").textContent = "";
@@ -2971,6 +3017,7 @@ async function switchServerSession() {
       lastKnownMsgCount = -1;
       updateCopyIdBtn();
       chat.innerHTML = "";
+      lastDateKey = "";
       setMsgCount(0);
       $("curTitle").textContent = "（セッション未選択）";
       $("curId").textContent = "";
