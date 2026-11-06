@@ -1647,19 +1647,35 @@ function updatePinBtn() {
   $("pinSession").disabled = !currentId;
 }
 
-// セッション一覧の並び替え: 更新順（既定）と作成順を切り替える。
-// 並び順は localStorage に保存し、次回も使う。ピン留めした
-// セッションはどちらの順でも先頭に来る。
+// セッション一覧の並び替え: 更新順（既定）・作成順・タイトル順を
+// 順に切り替える。タイトル順は同じ名前の会話を探すときに便利で、
+// 日本語の読みで並ぶ（localeCompare の "ja"）。並び順は
+// localStorage に保存し、次回も使う。ピン留めしたセッションは
+// どの順でも先頭に来る。
 const SORT_KEY = "oc-session-sort";
-let sessionSort = localStorage.getItem(SORT_KEY) === "created" ? "created" : "updated";
+const storedSort = localStorage.getItem(SORT_KEY);
+let sessionSort = storedSort === "created" || storedSort === "title" ? storedSort : "updated";
 function updateSortBtn() {
-  $("sortSessions").textContent = "並び替え: " + (sessionSort === "created" ? "作成順" : "更新順");
+  $("sortSessions").textContent = "並び替え: " + (sessionSort === "created" ? "作成順"
+    : sessionSort === "title" ? "タイトル順" : "更新順");
 }
 function sessionSortTime(s) {
   return sessionSort === "created" ? (s.time?.created || 0) : (s.time?.updated || 0);
 }
+// 一覧・「次の未読へ」・「前の会話へ／次の会話へ」で共通の並び順。
+// ピン留めが先頭、タイトル順のときだけタイトルで並べ、同名の
+// ときは更新の新しい順にする。
+function compareSessions(a, b) {
+  const pin = (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0);
+  if (pin) return pin;
+  if (sessionSort === "title") {
+    const t = (a.title || "").localeCompare(b.title || "", "ja");
+    if (t) return t;
+  }
+  return sessionSortTime(b) - sessionSortTime(a);
+}
 $("sortSessions").onclick = () => {
-  sessionSort = sessionSort === "created" ? "updated" : "created";
+  sessionSort = sessionSort === "updated" ? "created" : sessionSort === "created" ? "title" : "updated";
   try { localStorage.setItem(SORT_KEY, sessionSort); } catch (e) {}
   updateSortBtn();
   renderListOptions();
@@ -1748,9 +1764,7 @@ $("markAllSeen").onclick = markAllSeen;
 // 未読が1件だけでもその会話へ移動できる。開いた会話は既読に
 // なるため、押すたびに次の未読へ進む。未読がなければ無効化する。
 function nextUnread() {
-  const sorted = [...allSessions].sort((a, b) =>
-    (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0) ||
-    sessionSortTime(b) - sessionSortTime(a));
+  const sorted = [...allSessions].sort(compareSessions);
   const unread = sorted.filter(s => hasNewMessages(s));
   if (!unread.length) return;
   const curPos = sorted.findIndex(s => s.id === currentId);
@@ -1768,9 +1782,7 @@ $("nextUnread").onclick = nextUnread;
 // 会話を順にめくって探せる。未選択のときは先頭（次）・末尾（前）へ
 // 移動する。会話が2件未満の間は無効化する。
 function stepSession(dir) {
-  const sorted = [...allSessions].sort((a, b) =>
-    (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0) ||
-    sessionSortTime(b) - sessionSortTime(a));
+  const sorted = [...allSessions].sort(compareSessions);
   if (sorted.length < 2) return;
   const curPos = sorted.findIndex(s => s.id === currentId);
   const next = curPos < 0
@@ -1812,9 +1824,7 @@ function renderListOptions(selectedId) {
   none.value = "";
   none.textContent = "（セッション一覧）";
   listEl.appendChild(none);
-  const sorted = [...allSessions].sort((a, b) =>
-    (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0) ||
-    sessionSortTime(b) - sessionSortTime(a));
+  const sorted = [...allSessions].sort(compareSessions);
   let shown = 0;
   for (const s of sorted) {
     if (q && s.id !== want &&
