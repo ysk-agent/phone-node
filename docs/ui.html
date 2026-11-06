@@ -258,6 +258,7 @@
     <button id="resend" disabled>再送信</button>
     <button id="editResend">編集して再送</button>
     <button id="continueReply" disabled>続きを生成</button>
+    <button id="regenerate" disabled>応答を作り直す</button>
     <button id="clearInput">入力をクリア</button>
     <button id="voiceInput">音声入力</button>
     <button id="openChatSearch">会話内検索</button>
@@ -1972,6 +1973,7 @@ async function loadMessages(id) {
   scrollChat(true);
   applyChatSearch();
   updateFoldAllBtn();
+  updateRegenerateBtn();
   // Refresh the list so the open session's seen time follows a
   // message that arrived from another browser while it was open;
   // without this, switching away would mark it as new even though
@@ -1990,6 +1992,7 @@ async function selectSession(id, load) {
   loadDraftFor(id);
   updateCopyIdBtn();
   $("continueReply").disabled = !id;
+  updateRegenerateBtn();
   applySessionModel(id);
   rememberLastSession(id);
   listEl.value = id;
@@ -2113,6 +2116,7 @@ async function send(resendText, record = true) {
   $("send").disabled = true;
   $("resend").disabled = true;
   $("continueReply").disabled = true;
+  $("regenerate").disabled = true;
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
   $("forkSession").disabled = true;
@@ -2177,6 +2181,7 @@ async function send(resendText, record = true) {
     $("send").disabled = false;
     $("resend").disabled = !lastSentText;
     $("continueReply").disabled = !currentId;
+    updateRegenerateBtn();
     $("abort").disabled = true;
     $("deleteSession").disabled = false;
     $("forkSession").disabled = false;
@@ -2211,6 +2216,47 @@ $("editResend").onclick = () => {
 // 対象にも触れない。セッション未選択のときは送る相手がないので
 // 何もしない（新しいセッションに「続けてください」は意味がない）。
 $("continueReply").onclick = () => { if (currentId) send("続けてください", false); };
+// 最後の応答を作り直す: 直前のユーザーメッセージまで巻き戻し、
+// 同じ質問をもう一度送る。応答が期待はずれだったとき、同じ文を
+// 入力欄へ戻して送り直すより1回で済む。巻き戻しはその質問の
+// 時点へファイルの変更も戻すので、確認ダイアログを出す。次の
+// 送信で巻き戻しが確定する仕組みは「ここまで戻す」と同じで、
+// 巻き戻した文はそのまま送り直すので入力欄へは戻さない。応答中や、
+// ユーザーメッセージがまだない会話では使えない。
+function updateRegenerateBtn() {
+  $("regenerate").disabled = !currentId || !!pendingId || !chat.querySelector(".msg.user");
+}
+$("regenerate").onclick = async () => {
+  if (!currentId) return;
+  if (pendingId) { setStatus("応答中は作り直せません", true); return; }
+  let users = chat.querySelectorAll(".msg.user");
+  let last = users[users.length - 1];
+  if (!last) return;
+  // このタブで送ったばかりの文はサーバの id がまだ付いていない
+  // ので、履歴を読み直して id を付けてから巻き戻す。
+  if (!last._msgId) {
+    try { await loadMessages(currentId); } catch (e) { setStatus("エラー: " + e.message, true); return; }
+    users = chat.querySelectorAll(".msg.user");
+    last = users[users.length - 1];
+    if (!last || !last._msgId) return;
+  }
+  const text = (last._rawText ?? last._body.textContent ?? "").trim();
+  if (!text) return;
+  const head = text.length > 40 ? text.slice(0, 40) + "…" : text;
+  if (!confirm("最後の応答を作り直しますか？\n「" + head + "」への応答が消え、同じ質問をもう一度送ります。ファイルの変更もこの質問の時点へ戻ります。")) return;
+  try {
+    await api("/session/" + encodeURIComponent(currentId) + "/revert", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageID: last._msgId }),
+    });
+    stagedRevertSession = currentId;
+    stagedRevertId = last._msgId;
+    updateUnrevertBtn();
+    await loadMessages(currentId);
+    await send(text);
+  } catch (e) { setStatus("エラー: " + e.message, true); }
+};
 // 入力欄を空にする: 長い下書きを書き直したいとき、全文を選択して
 // 消す代わりに1回で空にできる。下書きも消えるので、ページを開き
 // 直しても復元されない。送信履歴には触れない。
