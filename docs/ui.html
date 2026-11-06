@@ -478,6 +478,46 @@ function addUsage(info, seconds) {
   chat.appendChild(div);
   scrollChat();
 }
+// Sum the token counts and cost of every assistant message in the
+// session, so the total spend of a long conversation is visible at
+// a glance. The labels match addUsage, so the two lines read the
+// same way; a session without any usage info shows no line. The
+// old line is removed first, so there is ever only one totals line
+// and it always sits at the end of the chat.
+function showSessionTotals(messages) {
+  const old = chat.querySelector(".usage.total");
+  if (old) old.remove();
+  let input = 0, output = 0, reasoning = 0, cacheRead = 0, cacheWrite = 0, cost = 0;
+  let any = false;
+  for (const m of messages || []) {
+    if (!m.info || m.info.role !== "assistant") continue;
+    const t = m.info.tokens;
+    if (t) {
+      if (typeof t.input === "number") { input += t.input; any = true; }
+      if (typeof t.output === "number") { output += t.output; any = true; }
+      if (typeof t.reasoning === "number") reasoning += t.reasoning;
+      if (t.cache) {
+        if (typeof t.cache.read === "number") cacheRead += t.cache.read;
+        if (typeof t.cache.write === "number") cacheWrite += t.cache.write;
+      }
+    }
+    if (typeof m.info.cost === "number") { cost += m.info.cost; any = true; }
+  }
+  if (!any) return;
+  const parts = [];
+  if (input) parts.push("入力 " + input.toLocaleString("en-US"));
+  if (output) parts.push("出力 " + output.toLocaleString("en-US"));
+  if (reasoning) parts.push("推論 " + reasoning.toLocaleString("en-US"));
+  if (cacheRead) parts.push("キャッシュ読込 " + cacheRead.toLocaleString("en-US"));
+  if (cacheWrite) parts.push("キャッシュ書込 " + cacheWrite.toLocaleString("en-US"));
+  if (cost > 0) parts.push("コスト " + fmtCost(cost));
+  if (!parts.length) return;
+  const div = document.createElement("div");
+  div.className = "usage total";
+  div.textContent = "会話全体: " + parts.join(" · ");
+  chat.appendChild(div);
+  scrollChat();
+}
 
 // Rebuild the model dropdown from the server's providers, grouped
 // by provider. /config/providers lists only the connected providers,
@@ -583,10 +623,12 @@ async function loadMessages(id) {
   const messages = await api("/session/" + encodeURIComponent(id) + "/message");
   chat.innerHTML = "";
   for (const m of messages) renderMessage(m);
-  // The latest reply's usage, so reopening a session still shows it.
+  // The latest reply's usage, so reopening a session still shows it,
+  // followed by the session-wide totals.
   const lastAssistant = [...messages].reverse()
     .find(m => m.info && m.info.role === "assistant");
   addUsage(lastAssistant && lastAssistant.info);
+  showSessionTotals(messages);
   scrollChat(true);
   applyChatSearch();
 }
@@ -717,6 +759,13 @@ async function send(resendText) {
     // The server assigns/updates the title after an exchange; pull
     // the fresh list so the title bar and dropdown stay current.
     await refreshList(id);
+    // Refresh the session-wide totals with the reply included.
+    // (One extra GET; the totals line is a nicety, so a failure
+    // here must not report an error for the reply itself.)
+    try {
+      const messages = await api("/session/" + encodeURIComponent(id) + "/message");
+      showSessionTotals(messages);
+    } catch (e) { /* keep the reply as shown */ }
     setStatus("接続済み");
   } catch (e) {
     wait.remove();
