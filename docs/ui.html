@@ -8,36 +8,30 @@
   :root { color-scheme: dark; }
   body { margin: 0; font-family: system-ui, sans-serif; background: #111; color: #eee;
          display: flex; flex-direction: column; height: 100dvh; }
-  header { padding: 8px 12px; background: #1b1b1b; border-bottom: 1px solid #333;
-           display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 13px; }
-  header input, header select { background: #222; color: #eee; border: 1px solid #444;
-           border-radius: 6px; padding: 5px 8px; font-size: 13px; }
-  #server { width: 230px; } #model { width: 250px; }
-  #serverHistory { max-width: 210px; }
-  #sessionSearch { width: 170px; }
-  #sessionList { flex: 1; min-width: 220px; }
   button { background: #2d5a8f; color: #fff; border: 0; border-radius: 6px;
            padding: 6px 12px; font-size: 13px; cursor: pointer; }
-  #abort, #deleteSession { background: #8f2d2d; }
   button:disabled { opacity: .5; }
-  #status { color: #9c9; margin-left: auto; }
-  #status.err { color: #f88; }
-  #titleBar { padding: 6px 12px; background: #161616; border-bottom: 1px solid #2a2a2a;
-              font-size: 13px; display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
-  #curTitle { font-weight: 600; }
-  /* セッションIDは1行に収め、入りきらない分は省略する。以前は
-     word-break: break-all で、横幅が足りないときに1文字ずつ縦に
-     折り返してタイトルバー全体が画面の高さまで伸びてしまった。 */
-  #curId { color: #888; font-size: 11px; white-space: nowrap; overflow: hidden;
-           text-overflow: ellipsis; min-width: 0; max-width: 100%; }
-  #curCount { color: #888; font-size: 11px; white-space: nowrap; }
-  /* セッション一覧の件数: 検索で絞り込んだときは「表示件数 / 全件」
-     とし、絞り込みがなければ全件だけを表示する。 */
-  #sessionCount { color: #888; font-size: 11px; white-space: nowrap; }
-  #titleBar input { background: #222; color: #eee; border: 1px solid #444;
-           border-radius: 6px; padding: 4px 8px; font-size: 13px; margin-left: auto; width: 170px; }
+  input, select { background: #222; color: #eee; border: 1px solid #444;
+           border-radius: 6px; padding: 5px 8px; font-size: 13px; }
+  /* レイアウト再構成（AndCode 型）: メイン画面は上部バー・会話・
+     入力カードだけに絞り、セッション一覧と設定は左ドロワーへ、
+     副次的な送信操作は入力カード内の「＋」メニューへ畳む。
+     既存の機能と要素 ID はすべて維持し、置き場所だけを変える。 */
+  #topbar { display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+            background: #1b1b1b; border-bottom: 1px solid #333; }
+  #drawerBtn { background: transparent; border: 1px solid #444; color: #eee;
+               font-size: 16px; line-height: 1; padding: 6px 10px; }
+  #curTitle { flex: 1; min-width: 0; text-align: center; font-weight: 600; font-size: 15px;
+              white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #newSession { font-size: 16px; line-height: 1; padding: 6px 12px; }
+  /* 会話内検索のバー: 普段は隠し、「＋」メニューか Ctrl+K で開く。
+     開閉は末尾の配線スクリプトが担い、検索自体の処理は従来どおり。 */
+  #searchBar { display: none; align-items: center; gap: 6px; padding: 6px 12px;
+               background: #161616; border-bottom: 1px solid #2a2a2a; font-size: 13px; }
+  #searchBar.open { display: flex; }
+  #chatSearch { flex: 1; min-width: 0; }
   #chatSearchCount { color: #888; font-size: 12px; white-space: nowrap; }
-  #titleBar .copybtn { margin-left: 0; }
+  #chatWrap { position: relative; flex: 1; display: flex; min-height: 0; }
   main { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap;
          word-break: break-word; line-height: 1.5; font-size: 14px; }
@@ -84,36 +78,96 @@
   .msg.dimmed, .tool.dimmed { opacity: .35; }
   .msg.match, .tool.match { outline: 1px solid #2d5a8f; }
   .msg.current, .tool.current { outline: 2px solid #e8a33d; }
-  footer { padding: 10px 12px; background: #1b1b1b; border-top: 1px solid #333;
-           display: flex; gap: 8px; flex-wrap: wrap; }
-  footer select { background: #222; color: #eee; border: 1px solid #444;
-           border-radius: 6px; padding: 5px 8px; font-size: 13px; max-width: 170px; }
-  #input { flex: 1; background: #222; color: #eee; border: 1px solid #444; border-radius: 8px;
-           padding: 9px; font-size: 14px; resize: none; max-height: 40dvh; overflow-y: auto; }
+  /* 会話をさかのぼって読んでいるときだけ出る「最新へ」ボタンと、
+     対になる「先頭へ」ボタン。会話エリアの右下に浮かせ、表示・
+     非表示は JS が切り替える。 */
+  #toLatest { position: absolute; right: 12px; bottom: 12px; display: none;
+              box-shadow: 0 2px 8px rgba(0,0,0,.5); opacity: .92; }
+  #toTop { position: absolute; right: 12px; bottom: 58px; display: none;
+           box-shadow: 0 2px 8px rgba(0,0,0,.5); opacity: .92; }
+  /* 状態表示の細い帯: 接続状態と応答時間はここに出る。 */
+  #statusBar { padding: 4px 14px; background: #141414; border-top: 1px solid #2a2a2a;
+               font-size: 12px; }
+  #status { color: #9c9; }
+  #status.err { color: #f88; }
+  /* 入力カード: 入力欄と、その下の1行（「＋」メニュー、モデル、
+     文字数、中断、送信）を一つのカードにまとめる。 */
+  #composer { position: relative; margin: 8px; background: #1b1b1b; border: 1px solid #333;
+              border-radius: 16px; padding: 8px; display: flex; flex-direction: column; gap: 8px; }
+  #input { width: 100%; box-sizing: border-box; background: #222; color: #eee;
+           border: 1px solid #444; border-radius: 12px; padding: 9px; font-size: 14px;
+           resize: none; max-height: 40dvh; overflow-y: auto; }
   /* ファイルをドラッグしているときの入力欄: 枠の色を変えて、
      ここへ落とせば内容が入ることが分かるようにする。 */
   #input.dragover { border-color: #7fb3e8; }
-  #charCount { color: #888; font-size: 12px; align-self: center; white-space: nowrap; }
-  /* 会話をさかのぼって読んでいるときだけ出る「最新へ」ボタン。
-     フッターの上に浮かせ、表示・非表示は JS が切り替える。 */
-  #toLatest { position: fixed; right: 14px; bottom: 84px; display: none;
-              box-shadow: 0 2px 8px rgba(0,0,0,.5); }
-  /* 「最新へ」と対になる「先頭へ」ボタン。会話を下まで読んで
-     最初の指示や前提を見直したいとき、手でスクロールし直さずに
-     先頭へ戻れる。表示・非表示は JS が切り替える。 */
-  #toTop { position: fixed; right: 14px; bottom: 130px; display: none;
-           box-shadow: 0 2px 8px rgba(0,0,0,.5); }
+  #composerRow { display: flex; align-items: center; gap: 8px; }
+  #toolMenuBtn { background: #2a2a2a; border: 1px solid #444; color: #eee;
+                 font-size: 15px; line-height: 1; padding: 6px 11px; border-radius: 999px; }
+  #model { flex: 1; min-width: 0; max-width: 280px; }
+  #charCount { color: #888; font-size: 12px; white-space: nowrap; }
+  #abort { background: #8f2d2d; border-radius: 999px; }
+  /* 中断は応答中だけ意味があるため、無効な間は行から消す。
+     有効・無効の切り替え自体は従来どおり JS が行う。 */
+  #abort:disabled { display: none; }
+  #send { border-radius: 999px; padding: 7px 18px; margin-left: auto; }
+  /* 「＋」メニュー: 副次的な送信操作と定型文を畳むパネル。
+     入力カードの左下から上に開く。 */
+  #toolMenu { position: absolute; left: 8px; bottom: calc(100% + 6px); z-index: 30;
+              width: min(300px, 86vw); background: #1e1e1e; border: 1px solid #444;
+              border-radius: 12px; padding: 6px; display: none; flex-direction: column;
+              gap: 2px; box-shadow: 0 4px 16px rgba(0,0,0,.5); }
+  #toolMenu.open { display: flex; }
+  #toolMenu button { background: transparent; color: #eee; text-align: left;
+                     padding: 8px 10px; border-radius: 8px; font-size: 13px; }
+  #toolMenu button:disabled { opacity: .4; }
+  #toolMenu select { width: 100%; box-sizing: border-box; }
+  #toolMenu .menuLabel { color: #888; font-size: 11px; padding: 6px 10px 2px; }
+  /* 左ドロワー: セッション一覧と設定を畳む。普段は画面外にあり、
+     ハンバーガーで開く。背後のスクリムを押しても閉じる。 */
+  #scrim { position: fixed; inset: 0; background: rgba(0,0,0,.5); display: none; z-index: 35; }
+  #scrim.open { display: block; }
+  #drawer { position: fixed; top: 0; left: 0; bottom: 0; z-index: 40;
+            width: min(330px, 88vw); box-sizing: border-box; overflow-y: auto;
+            background: #181818; border-right: 1px solid #333; padding: 14px;
+            display: flex; flex-direction: column; gap: 16px;
+            transform: translateX(-105%); transition: transform .2s ease; }
+  #drawer.open { transform: none; }
+  #drawer h2 { font-size: 12px; color: #888; font-weight: 600; margin: 0 0 2px; }
+  .drawerSection { display: flex; flex-direction: column; gap: 6px; }
+  .drawerSection label { display: flex; flex-direction: column; gap: 4px;
+                         font-size: 12px; color: #aaa; }
+  .drawerRow { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+  #sessionList { width: 100%; box-sizing: border-box; }
+  #sessionSearch { flex: 1; min-width: 120px; }
+  #sessionCount { color: #888; font-size: 11px; white-space: nowrap; }
+  #server, #serverHistory { width: 100%; box-sizing: border-box; }
+  #curId { color: #888; font-size: 11px; word-break: break-all; }
+  #curCount { color: #888; font-size: 11px; white-space: nowrap; }
+  #drawer .actbtn { width: 100%; box-sizing: border-box; text-align: left;
+                    background: #222; border: 1px solid #3a3a3a; color: #eee; }
+  #deleteSession { background: #5a2323; border-color: #7a3030; }
   /* 明るい表示: 暗い配色のままでは日差しの強い場所で読みにくい
-     ため、背景と文字色を入れ替えた配色を用意する。ヘッダーの
+     ため、背景と文字色を入れ替えた配色を用意する。ドロワーの
      ボタンで切り替え、選択は localStorage に保存する。 */
   body.light { color-scheme: light; background: #f4f4f4; color: #222; }
-  body.light header { background: #fff; border-color: #ddd; }
-  body.light header input, body.light header select { background: #fff; color: #222; border-color: #bbb; }
+  body.light #topbar { background: #fff; border-color: #ddd; }
+  body.light #drawerBtn { color: #222; border-color: #bbb; }
+  body.light #searchBar { background: #ececec; border-color: #ddd; }
+  body.light #chatSearchCount, body.light #sessionCount,
+  body.light #curId, body.light #curCount { color: #666; }
+  body.light input, body.light select { background: #fff; color: #222; border-color: #bbb; }
+  body.light #statusBar { background: #ececec; border-color: #ddd; }
   body.light #status { color: #2a7a2a; }
   body.light #status.err { color: #c00; }
-  body.light #titleBar { background: #ececec; border-color: #ddd; }
-  body.light #curId, body.light #curCount, body.light #sessionCount, body.light #chatSearchCount { color: #666; }
-  body.light #titleBar input { background: #fff; color: #222; border-color: #bbb; }
+  body.light #composer { background: #fff; border-color: #ddd; }
+  body.light #input { background: #fff; color: #222; border-color: #bbb; }
+  body.light #toolMenuBtn { background: #f0f0f0; color: #222; border-color: #bbb; }
+  body.light #toolMenu { background: #fff; border-color: #bbb; }
+  body.light #toolMenu button { color: #222; }
+  body.light #charCount { color: #666; }
+  body.light #drawer { background: #f7f7f7; border-color: #ddd; }
+  body.light #drawer .actbtn { background: #fff; border-color: #ccc; color: #222; }
+  body.light #deleteSession { background: #a33333; border-color: #a33333; color: #fff; }
   body.light .msg a { color: #1a5fb4; }
   body.light .msg pre { background: #eee; border-color: #ccc; }
   body.light .msg code { background: rgba(0,0,0,.07); }
@@ -127,13 +181,9 @@
   body.light .tool { color: #555; border-color: #999; }
   body.light .tool.err { color: #c00; border-color: #c00; }
   body.light .tool .tooldetail { color: #444; background: #f0f0f0; border-color: #bbb; }
-  body.light footer { background: #fff; border-color: #ddd; }
-  body.light footer select { background: #fff; color: #222; border-color: #bbb; }
-  body.light #input { background: #fff; color: #222; border-color: #bbb; }
-  body.light #charCount { color: #666; }
   /* 文字サイズの切り替え: スマホの小さい画面や屋外では標準の
      文字が読みにくいことがあるため、小・標準・大の3段階を用意
-     する。メッセージと入力欄だけが対象で、ヘッダー類は変わらない。 */
+     する。メッセージと入力欄だけが対象で、上部バー類は変わらない。 */
   body.font-small .msg { font-size: 12px; }
   body.font-small #input { font-size: 12px; }
   body.font-large .msg { font-size: 17px; }
@@ -156,37 +206,61 @@
 </style>
 </head>
 <body>
-<header>
-  <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
-  <label>履歴 <select id="serverHistory"><option value="">（履歴から選ぶ）</option></select></label>
-  <label>モデル <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select></label>
-  <button id="refreshModels">モデル更新</button>
-  <button id="themeToggle">明るい表示</button>
-  <button id="fontSizeToggle">文字: 標準</button>
-  <button id="mdToggle">表示: Markdown</button>
-  <button id="soundToggle">通知音: オン</button>
-  <button id="autoScrollToggle">自動スクロール: オン</button>
-  <button id="shortcutBtn">ショートカット</button>
-  <span id="status">未接続</span>
-</header>
-<header>
-  <select id="sessionList"><option value="">（セッション一覧）</option></select>
-  <span id="sessionCount"></span>
-  <label>検索 <input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"></label>
-  <button id="sortSessions">並び替え: 更新順</button>
-  <button id="newSession">新規</button>
-  <button id="rename">名前変更</button>
-  <button id="pinSession">ピン留め</button>
-  <button id="deleteSession">削除</button>
-  <button id="exportMd">書き出し</button>
-  <button id="exportJson">JSON書き出し</button>
-  <button id="copyChat">会話をコピー</button>
-  <button id="refreshList">一覧更新</button>
-</header>
-<div id="titleBar"><span id="curTitle">（セッション未選択）</span><span id="curId"></span><span id="curCount"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="toggleAllFold" class="copybtn" disabled>すべて展開</button></div>
-<main id="chat"></main>
-<button id="toLatest">最新へ ↓</button>
-<button id="toTop">先頭へ ↑</button>
+<div id="topbar"><button id="drawerBtn" title="メニュー">☰</button><span id="curTitle">（セッション未選択）</span><button id="newSession" title="新規セッション">＋</button></div>
+<div id="searchBar"><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="chatSearchClose" class="copybtn">閉じる</button></div>
+<div id="chatWrap"><main id="chat"></main><button id="toLatest">最新へ ↓</button><button id="toTop">先頭へ ↑</button></div>
+<div id="statusBar"><span id="status">未接続</span></div>
+<div id="composer">
+  <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）" title="テキストファイルをここへドロップすると、その内容が入力欄に入ります"></textarea>
+  <div id="composerRow">
+    <button id="toolMenuBtn" title="その他の操作">＋</button>
+    <select id="model"><option value="opencode/deepseek-v4.1-flash-free">opencode/deepseek-v4.1-flash-free</option></select>
+    <span id="charCount"></span>
+    <button id="abort" disabled>中断</button>
+    <button id="send">送信</button>
+  </div>
+  <div id="toolMenu">
+    <button id="resend" disabled>再送信</button>
+    <button id="editResend">編集して再送</button>
+    <button id="continueReply" disabled>続きを生成</button>
+    <button id="clearInput">入力をクリア</button>
+    <button id="openChatSearch">会話内検索</button>
+    <button id="enterModeToggle">送信キー: Enter</button>
+    <div class="menuLabel">定型文</div>
+    <select id="snippetList"><option value="">（定型文）</option></select>
+    <button id="saveSnippet">定型文を保存</button>
+    <button id="deleteSnippet">定型文を削除</button>
+  </div>
+</div>
+<div id="scrim"></div>
+<aside id="drawer">
+  <div class="drawerSection">
+    <h2>セッション</h2>
+    <select id="sessionList"><option value="">（セッション一覧）</option></select>
+    <div class="drawerRow"><input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"><span id="sessionCount"></span></div>
+    <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="refreshList">一覧更新</button></div>
+    <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
+    <button id="rename" class="actbtn">名前変更</button>
+    <button id="pinSession" class="actbtn">ピン留め</button>
+    <button id="toggleAllFold" class="actbtn" disabled>すべて展開</button>
+    <button id="exportMd" class="actbtn">書き出し</button>
+    <button id="exportJson" class="actbtn">JSON書き出し</button>
+    <button id="copyChat" class="actbtn">会話をコピー</button>
+    <button id="deleteSession" class="actbtn">削除</button>
+  </div>
+  <div class="drawerSection">
+    <h2>設定</h2>
+    <label>サーバ <input id="server" value="http://100.102.129.64:4096"></label>
+    <label>履歴 <select id="serverHistory"><option value="">（履歴から選ぶ）</option></select></label>
+    <button id="refreshModels" class="actbtn">モデル更新</button>
+    <button id="themeToggle" class="actbtn">明るい表示</button>
+    <button id="fontSizeToggle" class="actbtn">文字: 標準</button>
+    <button id="mdToggle" class="actbtn">表示: Markdown</button>
+    <button id="soundToggle" class="actbtn">通知音: オン</button>
+    <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
+    <button id="shortcutBtn" class="actbtn">ショートカット</button>
+  </div>
+</aside>
 <dialog id="shortcutHelp">
   <h2>キーボードショートカット</h2>
   <table>
@@ -201,20 +275,6 @@
   </table>
   <button class="closebtn" id="shortcutClose">閉じる</button>
 </dialog>
-<footer>
-  <textarea id="input" rows="2" placeholder="プロンプトを入力（Enter で送信、Shift+Enter で改行）" title="テキストファイルをここへドロップすると、その内容が入力欄に入ります"></textarea>
-  <span id="charCount"></span>
-  <button id="send">送信</button>
-  <button id="resend" disabled>再送信</button>
-  <button id="editResend">編集して再送</button>
-  <button id="continueReply" disabled>続きを生成</button>
-  <button id="clearInput">入力をクリア</button>
-  <button id="abort" disabled>中断</button>
-  <button id="enterModeToggle">送信キー: Enter</button>
-  <select id="snippetList"><option value="">（定型文）</option></select>
-  <button id="saveSnippet">定型文を保存</button>
-  <button id="deleteSnippet">定型文を削除</button>
-</footer>
 <script>
 "use strict";
 // This page depends only on the opencode server's public REST API:
@@ -2090,6 +2150,48 @@ document.addEventListener("keydown", e => {
     }
   } catch (e) { setStatus("エラー: " + e.message, true); }
 })();
+</script>
+<script>
+"use strict";
+// レイアウト再構成（AndCode 型）に伴う配線。既存の処理には触れず、
+// ドロワーと「＋」メニューと会話内検索バーの開閉だけを担う。
+// 開閉は class の付け外しで、見た目は CSS が決める。
+const drawerEl = document.getElementById("drawer");
+const scrimEl = document.getElementById("scrim");
+const toolMenuEl = document.getElementById("toolMenu");
+const searchBarEl = document.getElementById("searchBar");
+function openDrawer() { drawerEl.classList.add("open"); scrimEl.classList.add("open"); }
+function closeDrawer() { drawerEl.classList.remove("open"); scrimEl.classList.remove("open"); }
+function closeMenu() { toolMenuEl.classList.remove("open"); }
+function showSearchBar() { searchBarEl.classList.add("open"); }
+document.getElementById("drawerBtn").onclick = () => { closeMenu(); openDrawer(); };
+scrimEl.onclick = closeDrawer;
+document.getElementById("toolMenuBtn").onclick = e => {
+  e.stopPropagation();
+  toolMenuEl.classList.toggle("open");
+};
+document.addEventListener("click", e => {
+  if (!toolMenuEl.contains(e.target)) closeMenu();
+});
+toolMenuEl.addEventListener("click", e => {
+  if (e.target.closest("button")) closeMenu();
+});
+document.getElementById("openChatSearch").onclick = () => {
+  showSearchBar();
+  document.getElementById("chatSearch").focus();
+};
+document.getElementById("chatSearchClose").onclick = () =>
+  searchBarEl.classList.remove("open");
+// Ctrl+K への既存の処理（検索欄へのフォーカス）は、隠れている欄
+// では効かないため、捕捉フェーズで先にバーを開く。Esc はドロワーと
+// メニューを閉じる（ダイアログ自体の Esc はダイアログが処理する）。
+document.addEventListener("keydown", e => {
+  if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) showSearchBar();
+  if (e.key === "Escape") { closeDrawer(); closeMenu(); }
+}, true);
+// セッションを選んだらドロワーを閉じて会話へ戻る。新規作成も同様。
+document.getElementById("sessionList").addEventListener("change", closeDrawer);
+document.getElementById("newSession").addEventListener("click", closeDrawer);
 </script>
 </body>
 </html>
