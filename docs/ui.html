@@ -1534,10 +1534,7 @@ updatePinOnlyBtn();
 // pinned ones. The selected session is always shown, so
 // filtering never loses the current selection or a just-created
 // session passed as selectedId. Pinned sessions come first (in the
-// chosen sort order), with a 📌 mark on their titles. A session
-// with an unsent draft (kept per session in localStorage, see
-// draftKey) gets a ✎ mark, so a half-written prompt is visible
-// from the list without opening each session. The count
+// chosen sort order), with a 📌 mark on their titles. The count
 // beside the list shows how many sessions are shown out of the
 // total, so a search that matches nothing reads as 0件 / 全N件
 // instead of an empty-looking list.
@@ -1560,15 +1557,7 @@ function renderListOptions(selectedId) {
     if (pinOnly && s.id !== want && !isPinned(s.id)) continue;
     const o = document.createElement("option");
     o.value = s.id;
-    // A draft is saved on every input, and removed when sent, so
-    // the stored value is current; an empty or whitespace-only
-    // draft is not a draft worth marking.
-    let draftMark = "";
-    try {
-      const d = localStorage.getItem(draftKey(s.id));
-      if (d && d.trim()) draftMark = "✎ ";
-    } catch (e) { /* 下書きが読めなくても一覧表示には影響しない */ }
-    o.textContent = (isPinned(s.id) ? "📌 " : "") + draftMark + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
+    o.textContent = (isPinned(s.id) ? "📌 " : "") + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
     listEl.appendChild(o);
     shown++;
   }
@@ -2730,13 +2719,7 @@ const drawerEl = document.getElementById("drawer");
 const scrimEl = document.getElementById("scrim");
 const toolMenuEl = document.getElementById("toolMenu");
 const searchBarEl = document.getElementById("searchBar");
-function openDrawer() {
-  // Rebuild the list on open so the ✎ draft marks reflect the
-  // latest typing (drafts are saved on every input); the rebuild
-  // only touches the dropdown and keeps the current selection.
-  try { renderListOptions(); } catch (e) { /* 一覧がなくても開く */ }
-  drawerEl.classList.add("open"); scrimEl.classList.add("open");
-}
+function openDrawer() { drawerEl.classList.add("open"); scrimEl.classList.add("open"); }
 function closeDrawer() { drawerEl.classList.remove("open"); scrimEl.classList.remove("open"); }
 function closeMenu() { toolMenuEl.classList.remove("open"); }
 function showSearchBar() { searchBarEl.classList.add("open"); }
