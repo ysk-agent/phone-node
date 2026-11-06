@@ -214,6 +214,8 @@
 //   GET   /event                   -> server-sent events (streaming replies)
 //   POST  /session/{id}/abort      -> stop a running reply
 //   GET   /session/{id}/message    -> read a session's history
+//   (the same GET is also polled every 30s while idle, so messages
+//   sent from another browser appear here automatically)
 //   (a message's info carries time.created (ms since epoch); an
 //   assistant message's info also carries tokens {input, output,
 //   reasoning, cache {read, write}} and cost in USD; a message's
@@ -527,6 +529,24 @@ async function checkConnection() {
 }
 function startMonitor() {
   setInterval(checkConnection, 30000);
+  setInterval(autoRefresh, 30000);
+}
+// 他のブラウザで送ったメッセージを自動で取り込む: この UI はスマホと
+// Mac の両方から開くため、片方で送った文がもう片方にいつまでも出ない
+// と会話がずれる。応答待ちでないときに 30 秒ごとに件数だけ確認し、
+// 増減があれば読み直す。読み直しは最下部近くにいるときだけ最下部へ
+// 戻し、さかのぼって読んでいる最中は最下部からの距離を保つ。
+// 取得に失敗したときは何もしない（接続監視が到達性を知らせる）。
+let lastKnownMsgCount = -1;
+async function autoRefresh() {
+  if (!currentId || pendingId) return;
+  let messages;
+  try { messages = await api("/session/" + encodeURIComponent(currentId) + "/message"); }
+  catch (e) { return; }
+  if (messages.length === lastKnownMsgCount) return;
+  const away = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
+  await loadMessages(currentId);
+  if (away > 120) chat.scrollTop = chat.scrollHeight - away - chat.clientHeight;
 }
 // 会話をさかのぼって読んでいるときは自動スクロールを止める:
 // 新しいメッセージや逐次表示の更新が来ても、最下部近くにいるとき
@@ -1091,6 +1111,7 @@ async function loadMessages(id) {
   addUsage(lastAssistant && lastAssistant.info);
   showSessionTotals(messages);
   setMsgCount(messages.length);
+  lastKnownMsgCount = messages.length;
   scrollChat(true);
   applyChatSearch();
   updateFoldAllBtn();
@@ -1117,6 +1138,7 @@ async function ensureSession() {
   });
   await refreshList(s.id);
   await selectSession(s.id, false);
+  lastKnownMsgCount = 0;
   return s.id;
 }
 
@@ -1232,6 +1254,7 @@ async function send(resendText) {
       const messages = await api("/session/" + encodeURIComponent(id) + "/message");
       showSessionTotals(messages);
       setMsgCount(messages.length);
+      lastKnownMsgCount = messages.length;
     } catch (e) { /* keep the reply as shown */ }
     setStatus("接続済み");
     setReplyTitle(document.hidden ? "応答完了" : "");
@@ -1580,6 +1603,7 @@ $("deleteSession").onclick = async () => {
     pinnedIds = pinnedIds.filter(id => id !== currentId);
     savePinned();
     currentId = "";
+    lastKnownMsgCount = -1;
     updateCopyIdBtn();
     localStorage.removeItem("oc-last-session");
     chat.innerHTML = "";
