@@ -1668,24 +1668,27 @@ function updatePinBtn() {
   $("pinSession").disabled = !currentId;
 }
 
-// セッション一覧の並び替え: 更新順（既定）・作成順・タイトル順を
-// 順に切り替える。タイトル順は同じ名前の会話を探すときに便利で、
-// 日本語の読みで並ぶ（localeCompare の "ja"）。並び順は
-// localStorage に保存し、次回も使う。ピン留めしたセッションは
-// どの順でも先頭に来る。
+// セッション一覧の並び替え: 更新順（既定）・作成順・タイトル順・
+// 未読順を順に切り替える。タイトル順は同じ名前の会話を探すときに
+// 便利で、日本語の読みで並ぶ（localeCompare の "ja"）。未読順は
+// 新着のある会話を先頭に集めるので、他のブラウザで届いた返信に
+// 順に目を通すときに便利で、その中では更新の新しい順になる。
+// 並び順は localStorage に保存し、次回も使う。ピン留めした
+// セッションはどの順でも先頭に来る。
 const SORT_KEY = "oc-session-sort";
 const storedSort = localStorage.getItem(SORT_KEY);
-let sessionSort = storedSort === "created" || storedSort === "title" ? storedSort : "updated";
+let sessionSort = storedSort === "created" || storedSort === "title" || storedSort === "unread" ? storedSort : "updated";
 function updateSortBtn() {
   $("sortSessions").textContent = "並び替え: " + (sessionSort === "created" ? "作成順"
-    : sessionSort === "title" ? "タイトル順" : "更新順");
+    : sessionSort === "title" ? "タイトル順" : sessionSort === "unread" ? "未読順" : "更新順");
 }
 function sessionSortTime(s) {
   return sessionSort === "created" ? (s.time?.created || 0) : (s.time?.updated || 0);
 }
 // 一覧・「次の未読へ」・「前の会話へ／次の会話へ」で共通の並び順。
 // ピン留めが先頭、タイトル順のときだけタイトルで並べ、同名の
-// ときは更新の新しい順にする。
+// ときは更新の新しい順にする。未読順のときは新着のある会話を
+// 先に並べ、その中でも新着のない会話でも更新の新しい順にする。
 function compareSessions(a, b) {
   const pin = (isPinned(b.id) ? 1 : 0) - (isPinned(a.id) ? 1 : 0);
   if (pin) return pin;
@@ -1693,10 +1696,15 @@ function compareSessions(a, b) {
     const t = (a.title || "").localeCompare(b.title || "", "ja");
     if (t) return t;
   }
+  if (sessionSort === "unread") {
+    const n = (hasNewMessages(b) ? 1 : 0) - (hasNewMessages(a) ? 1 : 0);
+    if (n) return n;
+  }
   return sessionSortTime(b) - sessionSortTime(a);
 }
 $("sortSessions").onclick = () => {
-  sessionSort = sessionSort === "updated" ? "created" : sessionSort === "created" ? "title" : "updated";
+  sessionSort = sessionSort === "updated" ? "created" : sessionSort === "created" ? "title"
+    : sessionSort === "title" ? "unread" : "updated";
   try { localStorage.setItem(SORT_KEY, sessionSort); } catch (e) {}
   updateSortBtn();
   renderListOptions();
