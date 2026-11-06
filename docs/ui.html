@@ -264,6 +264,7 @@
     <button id="fontSizeToggle" class="actbtn">文字: 標準</button>
     <button id="mdToggle" class="actbtn">表示: Markdown</button>
     <button id="soundToggle" class="actbtn">通知音: オン</button>
+    <button id="vibrateToggle" class="actbtn">バイブレーション: オン</button>
     <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
     <button id="shortcutBtn" class="actbtn">ショートカット</button>
   </div>
@@ -414,6 +415,35 @@ $("soundToggle").onclick = () => {
   updateSoundBtn();
   if (soundOn) { ensureAudio(); if (audioCtx) playTone(880, audioCtx.currentTime, 0.15); }
 };
+// 応答完了を振動で知らせる: この UI はスマホから開くことが多い
+// ため、音が聞こえない場面（マナーモードなど）でもタブが隠れて
+// いるときに応答の完了に気づけるよう、短く振動させる。音と同じく
+// タブが隠れているときだけ振動し、見ているときは画面で分かるので
+// 振動させない。振動に対応していないブラウザではボタンを出さない。
+// 設定欄のボタンで切り替え、選択は localStorage に保存する。
+const VIBRATE_KEY = "oc-vibrate";
+let vibrateOn = localStorage.getItem(VIBRATE_KEY) !== "off";
+function updateVibrateBtn() {
+  $("vibrateToggle").textContent = "バイブレーション: " + (vibrateOn ? "オン" : "オフ");
+}
+function vibrateNotify(kind) {
+  if (!vibrateOn || !document.hidden) return;
+  try {
+    if (kind === "done") navigator.vibrate(120);
+    else navigator.vibrate([100, 50, 100]);
+  } catch (e) { /* 振動しなくても応答表示には影響しない */ }
+}
+if ("vibrate" in navigator) {
+  updateVibrateBtn();
+  $("vibrateToggle").onclick = () => {
+    vibrateOn = !vibrateOn;
+    try { localStorage.setItem(VIBRATE_KEY, vibrateOn ? "on" : "off"); } catch (e) {}
+    updateVibrateBtn();
+    if (vibrateOn) { try { navigator.vibrate(60); } catch (e) {} }
+  };
+} else {
+  $("vibrateToggle").style.display = "none";
+}
 // 新しいメッセージや逐次表示の更新が来たときに最下部へ追従する
 // かどうかを切り替える。長い会話をさかのぼって読むときは、追従を
 // 止めておくと応答の途中でも読んでいる位置が動かない。セッションを
@@ -1526,6 +1556,7 @@ async function send(resendText, record = true) {
     setStatus("接続済み");
     setReplyTitle(document.hidden ? "応答完了" : "");
     playNotify("done");
+    vibrateNotify("done");
   } catch (e) {
     wait.remove();
     if (aborted) {
@@ -1533,11 +1564,13 @@ async function send(resendText, record = true) {
       setStatus("接続済み");
       setReplyTitle(document.hidden ? "中断しました" : "");
       playNotify("error");
+      vibrateNotify("error");
     } else {
       addMsg("sys", "エラー: " + e.message);
       setStatus("エラー", true);
       setReplyTitle(document.hidden ? "エラー" : "");
       playNotify("error");
+      vibrateNotify("error");
     }
   } finally {
     stopReplyTimer();
