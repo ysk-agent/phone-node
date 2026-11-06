@@ -142,6 +142,17 @@ let aborted = false;
 // 応答にかかった時間の表示: 送信から応答完了までの経過秒数を
 // ステータス欄に1秒ごとに表示し、完了後は使用量の行に残す。
 // 無料モデルは応答が遅いことがあるため、待っている間の目安になる。
+// 応答完了をタブのタイトルで知らせる: 無料モデルは応答が遅い
+// ことがあるため、他のタブを見ている間に返信が終わっても気づける
+// よう、送信中はタイトルを「応答中…」にし、完了時はタブが隠れて
+// いれば「応答完了」にする。タブに戻ると元のタイトルに戻る。
+const BASE_TITLE = document.title;
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) document.title = BASE_TITLE;
+});
+function setReplyTitle(text) {
+  document.title = text ? text + " - " + BASE_TITLE : BASE_TITLE;
+}
 let replyStart = 0;
 let replyTimer = null;
 function startReplyTimer() {
@@ -805,6 +816,7 @@ async function send(resendText) {
   const wait = addMsg("sys", "応答待ち…");
   try {
     startReplyTimer();
+    setReplyTitle("応答中…");
     const id = await ensureSession();
     pendingId = id;
     if (eventsConnected) await streamReply(id, text, wait);
@@ -821,14 +833,17 @@ async function send(resendText) {
       setMsgCount(messages.length);
     } catch (e) { /* keep the reply as shown */ }
     setStatus("接続済み");
+    setReplyTitle(document.hidden ? "応答完了" : "");
   } catch (e) {
     wait.remove();
     if (aborted) {
       addMsg("sys", "中断しました");
       setStatus("接続済み");
+      setReplyTitle(document.hidden ? "中断しました" : "");
     } else {
       addMsg("sys", "エラー: " + e.message);
       setStatus("エラー", true);
+      setReplyTitle(document.hidden ? "エラー" : "");
     }
   } finally {
     stopReplyTimer();
