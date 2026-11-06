@@ -33,6 +33,17 @@
   main { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .msg { max-width: 85%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap;
          word-break: break-word; line-height: 1.5; font-size: 14px; }
+  /* Markdown 表示: アシスタントの応答は見出し・太字・コードなど
+     を簡易表示する。装飾は表示だけで、コピーや検索は元の文面が対象。 */
+  .msg pre { background: #1b1b1b; border: 1px solid #444; border-radius: 6px;
+             padding: 8px; overflow-x: auto; margin: 6px 0; white-space: pre; }
+  .msg code { background: rgba(255,255,255,.09); padding: 1px 4px;
+              border-radius: 4px; font-size: 13px; }
+  .msg pre code { background: none; padding: 0; }
+  .msg a { color: #7fb3e8; }
+  .md-h1 { font-size: 17px; font-weight: 700; margin: 6px 0 2px; }
+  .md-h2 { font-size: 15px; font-weight: 700; margin: 6px 0 2px; }
+  .md-h3 { font-size: 14px; font-weight: 700; margin: 6px 0 2px; }
   .user { align-self: flex-end; background: #2d5a8f; }
   .assistant { align-self: flex-start; background: #242424; border: 1px solid #383838; }
   .sys { align-self: center; color: #999; font-size: 12px; }
@@ -81,6 +92,10 @@
   body.light #titleBar { background: #ececec; border-color: #ddd; }
   body.light #curId, body.light #curCount, body.light #chatSearchCount { color: #666; }
   body.light #titleBar input { background: #fff; color: #222; border-color: #bbb; }
+  body.light .msg a { color: #1a5fb4; }
+  body.light .msg pre { background: #eee; border-color: #ccc; }
+  body.light .msg code { background: rgba(0,0,0,.07); }
+  body.light .msg pre code { background: none; }
   body.light .user { background: #2d5a8f; color: #fff; }
   body.light .assistant { background: #fff; border-color: #ddd; color: #222; }
   body.light .sys { color: #666; }
@@ -340,6 +355,50 @@ function scrollChat(force) {
   const away = chat.scrollHeight - chat.scrollTop - chat.clientHeight;
   if (force || away <= 120) chat.scrollTop = chat.scrollHeight;
 }
+// アシスタントの応答を Markdown として簡易表示する。外部ライブラリ
+// は使わず、まず HTML を逃がしてから見出し・フェンス付きコード・
+// 太字・斜体・打ち消し・インラインコード・リンクだけを変換する。
+// 変換は表示だけで、コピーや検索、折りたたみの判定は元の文面
+// （div._rawText）が対象のまま。ユーザーの入力は変換しない。
+function escHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function renderInline(s) {
+  const codes = [];
+  s = s.replace(/`([^`\n]+)`/g, (m, c) => {
+    codes.push(c);
+    return "\u0000" + (codes.length - 1) + "\u0000";
+  });
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>");
+  s = s.replace(/~~([^~]+)~~/g, "<del>$1</del>");
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  s = s.replace(/\u0000(\d+)\u0000/g, (m, i) => "<code>" + codes[+i] + "</code>");
+  return s;
+}
+function renderMarkdown(text) {
+  const lines = escHtml(text).split("\n");
+  let html = "";
+  let inFence = false;
+  let fenceBuf = [];
+  for (const line of lines) {
+    if (/^```\w*\s*$/.test(line)) {
+      if (inFence) {
+        html += "<pre><code>" + fenceBuf.join("\n") + "</code></pre>";
+        fenceBuf = [];
+        inFence = false;
+      } else inFence = true;
+      continue;
+    }
+    if (inFence) { fenceBuf.push(line); continue; }
+    const h = line.match(/^(#{1,3})\s+(.*)$/);
+    if (h) html += '<div class="md-h' + h[1].length + '">' + renderInline(h[2]) + "</div>\n";
+    else html += renderInline(line) + "\n";
+  }
+  if (inFence) html += "<pre><code>" + fenceBuf.join("\n") + "</code></pre>";
+  return html;
+}
 // A message bubble keeps its text in a child node, so the time
 // line below it survives streaming updates that rewrite the text.
 // An assistant or user bubble also gets a footer row (kept in _foot)
@@ -350,9 +409,10 @@ function addMsg(cls, text, ms) {
   const div = document.createElement("div");
   div.className = "msg " + cls;
   const body = document.createElement("div");
-  body.textContent = text;
   div.appendChild(body);
   div._body = body;
+  div._rich = cls === "assistant";
+  setMsgText(div, text);
   if (cls === "assistant" || cls === "user") {
     const foot = document.createElement("div");
     foot.className = "msgfoot";
@@ -383,7 +443,12 @@ function addMsg(cls, text, ms) {
   updateFold(div);
   return div;
 }
-function setMsgText(div, text) { div._body.textContent = text; updateFold(div); }
+function setMsgText(div, text) {
+  div._rawText = text;
+  if (div._rich) div._body.innerHTML = renderMarkdown(text);
+  else div._body.textContent = text;
+  updateFold(div);
+}
 // 長いメッセージの折りたたみ: 2000文字を超えるメッセージは最初は
 // 先頭だけを表示し、「続きを表示」で全体を開く。折りたたみは表示だけ
 // のもので、コピーや会話内検索は全文が対象のまま。応答の逐次表示中
@@ -397,7 +462,7 @@ function updateFold(div) {
     div.classList.remove("collapsed");
     return;
   }
-  if ([...div._body.textContent].length > FOLD_CHARS) {
+  if ([...((div._rawText ?? div._body.textContent))].length > FOLD_CHARS) {
     btn.style.display = "";
     if (div._folded === undefined) div._folded = true;
     div.classList.toggle("collapsed", div._folded);
@@ -432,7 +497,7 @@ async function copyText(text) {
 // Copy a bubble's text to the clipboard; the button briefly shows
 // the result.
 async function copyMsg(div, btn) {
-  const ok = await copyText(div._body.textContent);
+  const ok = await copyText(div._rawText ?? div._body.textContent);
   btn.textContent = ok ? "コピー済み" : "コピー失敗";
   setTimeout(() => { btn.textContent = "コピー"; }, 1500);
 }
