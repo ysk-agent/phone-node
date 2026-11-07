@@ -1975,12 +1975,13 @@ $("sortSessions").onclick = () => {
 updateSortBtn();
 
 // セッション一覧の表示絞り込み: すべて・ピンのみ・未読のみ・
-// 今日のみ・昨日のみ・今週のみ・下書きのみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
+// 今日のみ・昨日のみ・今週のみ・先週のみ・下書きのみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
 // 一覧が長くなるため、見たいものだけに絞って切り替えられる
 // ようにする。今日のみは当日中に更新された会話だけを出すので、
 // 今日の作業に関係する会話へすぐ戻れる。昨日のみは前日に更新
 // された会話だけを出すので、昨日の続きへすぐ戻れる。今週のみは月曜日から今日までに更新
-// された会話だけを出すので、今週の作業に関係する会話へすぐ戻れる。下書きのみは送信していない
+// された会話だけを出すので、今週の作業に関係する会話へすぐ戻れる。先週のみは先週の月曜日から日曜日までに更新
+// された会話だけを出すので、先週の作業の続きへすぐ戻れる。下書きのみは送信していない
 // 下書きのある会話だけを出すので、書きかけの文が残っている会話へ
 // すぐ戻れる。並び替えと同じく
 // localStorage に保存し、次回も使う。
@@ -1993,6 +1994,7 @@ let listFilter = storedFilter === "pinned" || storedFilter === "on" ? "pinned"
   : storedFilter === "today" ? "today"
   : storedFilter === "yesterday" ? "yesterday"
   : storedFilter === "week" ? "week"
+  : storedFilter === "lastweek" ? "lastweek"
   : storedFilter === "draft" ? "draft" : "all";
 function updatePinOnlyBtn() {
   $("pinOnlyToggle").textContent = listFilter === "pinned" ? "表示: ピンのみ"
@@ -2000,12 +2002,14 @@ function updatePinOnlyBtn() {
     : listFilter === "today" ? "表示: 今日のみ"
     : listFilter === "yesterday" ? "表示: 昨日のみ"
     : listFilter === "week" ? "表示: 今週のみ"
+    : listFilter === "lastweek" ? "表示: 先週のみ"
     : listFilter === "draft" ? "表示: 下書きのみ" : "表示: すべて";
 }
 $("pinOnlyToggle").onclick = () => {
   listFilter = listFilter === "all" ? "pinned" : listFilter === "pinned" ? "unread"
     : listFilter === "unread" ? "today" : listFilter === "today" ? "yesterday"
-    : listFilter === "yesterday" ? "week" : listFilter === "week" ? "draft" : "all";
+    : listFilter === "yesterday" ? "week" : listFilter === "week" ? "lastweek"
+    : listFilter === "lastweek" ? "draft" : "all";
   try { localStorage.setItem(LIST_FILTER_KEY, listFilter); } catch (e) {}
   updatePinOnlyBtn();
   renderListOptions();
@@ -2152,7 +2156,9 @@ $("nextSession").onclick = () => stepSession(1);
 // calendar date of the session's updated time, falling back to
 // its created time), the ones updated yesterday (yesterday-only,
 // same date rule), the ones updated this week (week-only, Monday
-// to today by local date), or the ones with an unsent draft
+// to today by local date), the ones updated last week
+// (lastweek-only, Monday to Sunday of last week by local date),
+// or the ones with an unsent draft
 // (draft-only, see hasDraft). The selected session is always shown, so
 // filtering never loses the current selection or a just-created
 // session passed as selectedId. Pinned sessions come first (in the
@@ -2188,6 +2194,15 @@ function renderListOptions(selectedId) {
   weekStart.setHours(0, 0, 0, 0);
   weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
   const weekStartMs = weekStart.getTime();
+  // 先週の範囲: 今週の月曜日から7日戻した月曜日が先週の始まり、
+  // 今週の月曜日の前日（日曜日）が先週の終わり。setDate で日を
+  // 戻すので、今週のみと同じく夏時間のある地域でも確実。
+  const lastWeekStart = new Date(weekStart);
+  lastWeekStart.setDate(lastWeekStart.getDate() - 7);
+  const lastWeekStartMs = lastWeekStart.getTime();
+  const lastWeekEnd = new Date(weekStart);
+  lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+  const lastWeekEndMs = dayStartMs(lastWeekEnd.getTime());
   const todayStartMs = dayStartMs(Date.now());
   let shown = 0;
   for (const s of sorted) {
@@ -2217,6 +2232,15 @@ function renderListOptions(selectedId) {
       const t = s.time?.updated || s.time?.created || 0;
       const d = t ? dayStartMs(t) : 0;
       if (!d || d < weekStartMs || d > todayStartMs) continue;
+    }
+    // 先週のみ: 更新日時（なければ作成日時）が先週の月曜日から
+    // 日曜日までの会話だけを出す。今週のみと同じく日付の始まり
+    // 同士で範囲を比べるので、今日のうちに少し未来の時刻が付いた
+    // 会話が先週に入ることはなく、時刻のないセッションは出ない。
+    if (listFilter === "lastweek" && s.id !== want) {
+      const t = s.time?.updated || s.time?.created || 0;
+      const d = t ? dayStartMs(t) : 0;
+      if (!d || d < lastWeekStartMs || d > lastWeekEndMs) continue;
     }
     // 下書きのみ: 送信していない下書きのある会話だけを出す。
     // 書きかけの文がどの会話に残っているか、一覧で探さずに
