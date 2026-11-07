@@ -105,9 +105,10 @@
      明るい表示では背景が白に近いので、少し濃い黄色にする。 */
   mark.search-hl { background: #8a6d1a; color: #fff; border-radius: 2px; padding: 0 1px; }
   body.light mark.search-hl { background: #ffe08a; color: #111; }
-  /* 会話内検索の大文字小文字の区別: オン（青）のときだけ区別する。
-     既定のオフではボタンは他の検索ボタンと同じ見た目。 */
-  #chatSearchCase.on { background: #2d5a8f; border-color: #2d5a8f; color: #fff; }
+  /* 会話内検索の大文字小文字の区別と正規表現: オン（青）のときだけ
+     区別する／正規表現として扱う。既定のオフではボタンは他の検索
+     ボタンと同じ見た目。 */
+  #chatSearchCase.on, #chatSearchRegex.on { background: #2d5a8f; border-color: #2d5a8f; color: #fff; }
   /* 会話をさかのぼって読んでいるときだけ出る「最新へ」ボタンと、
      対になる「先頭へ」ボタン。会話エリアの右下に浮かせ、表示・
      非表示は JS が切り替える。 */
@@ -259,7 +260,7 @@
 </head>
 <body>
 <div id="topbar"><button id="drawerBtn" title="メニュー（Dキーでも開けます）">☰</button><span id="curTitle">（セッション未選択）</span><button id="newSession" title="新規セッション（Nキーでも開始できます）">＋</button></div>
-<div id="searchBar"><input id="chatSearch" type="search" placeholder="会話内を検索"><button id="chatSearchCase" class="copybtn" title="大文字と小文字を区別する">Aa</button><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="chatSearchClose" class="copybtn">閉じる</button></div>
+<div id="searchBar"><input id="chatSearch" type="search" placeholder="会話内を検索"><button id="chatSearchCase" class="copybtn" title="大文字と小文字を区別する">Aa</button><button id="chatSearchRegex" class="copybtn" title="正規表現で検索する">.*</button><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="chatSearchClose" class="copybtn">閉じる</button></div>
 <div id="chatWrap"><main id="chat"></main><button id="toLatest">最新へ ↓</button><button id="toTop">先頭へ ↑</button></div>
 <div id="statusBar"><span id="status">未接続</span></div>
 <div id="composer">
@@ -2958,7 +2959,9 @@ $("sessionSearch").addEventListener("input", () => renderListOptions());
 // 対象で、サーバへの問い合わせはしない。検索欄はセッションを
 // 切り替えても残るので、同じ語で別の会話も探せる。検索欄の隣の
 // 「Aa」ボタンで大文字と小文字を区別するかどうかを切り替えられ、
-// 既定は区別しない。
+// 「.*」ボタンで入力を正規表現として扱うかどうかを切り替えられる。
+// どちらも既定はオフ（Aa は区別しない、.* はふつうの文字列）。
+// 正規表現が無効なときは検索をかけず、件数表示にその旨を出す。
 // 「次へ／前へ」ボタンで一致したメッセージへ順に移動できる。
 // 長い会話では一致箇所まで手で探す必要がなくなる。現在位置の
 // 一致は枠を太くして示し、件数表示は「何番目/全件」になる。
@@ -2989,13 +2992,36 @@ function updateSearchCaseBtn() {
   $("chatSearchCase").title = searchCaseSensitive
     ? "大文字と小文字を区別する（オン）" : "大文字と小文字を区別しない（オフ）";
 }
-function highlightSearchText(root, q, caseSensitive) {
+function highlightSearchText(root, q, caseSensitive, re) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentNode.closest("button")) continue;
     const text = node.nodeValue;
+    if (re) {
+      // 正規表現の一致を塗る。空文字に一致するパターン（「a*」など）
+      // は lastIndex を1つ進めて読み飛ばす: 進めないと exec が同じ
+      // 位置を返し続ける。ハイライトする一致は長さのあるものだけ。
+      const frag = document.createDocumentFragment();
+      let pos = 0, any = false;
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(text)) !== null) {
+        if (m[0].length === 0) { re.lastIndex++; continue; }
+        if (m.index > pos) frag.appendChild(document.createTextNode(text.slice(pos, m.index)));
+        const mark = document.createElement("mark");
+        mark.className = "search-hl";
+        mark.textContent = m[0];
+        frag.appendChild(mark);
+        pos = m.index + m[0].length;
+        any = true;
+      }
+      if (!any) continue;
+      if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
+      node.parentNode.replaceChild(frag, node);
+      continue;
+    }
     const hay = caseSensitive ? text : text.toLowerCase();
     let idx = hay.indexOf(q);
     if (idx < 0) continue;
@@ -3020,16 +3046,39 @@ function applyChatSearch() {
   chatMatches = [];
   chatMatchIndex = -1;
   let found = 0;
+  // 正規表現モードでは入力を RegExp として解釈し、大文字小文字の
+  // 区別はフラグで決める（区別するなら g、しないなら gi）。無効な
+  // 正規表現のときは検索をかけず、表示をすべて元に戻して件数表示に
+  // その旨を出し、「次へ／前へ」も無効にする。
+  let re = null;
+  if (searchRegex && raw) {
+    try { re = new RegExp(raw, searchCaseSensitive ? "g" : "gi"); }
+    catch (e) {
+      for (const el of chat.querySelectorAll(".msg, .tool")) {
+        el.classList.remove("dimmed", "match", "current");
+        clearSearchHighlights(el._body ? el._body : (el._tooltext ? el._tooltext : el));
+      }
+      $("chatSearchCount").textContent = "正規表現が無効です";
+      $("chatSearchPrev").disabled = true;
+      $("chatSearchNext").disabled = true;
+      return;
+    }
+  }
   for (const el of chat.querySelectorAll(".msg, .tool")) {
     el.classList.remove("dimmed", "match", "current");
     const container = el._body ? el._body : (el._tooltext ? el._tooltext : el);
     clearSearchHighlights(container);
     if (!q) continue;
     const text = el._body ? el._body.textContent : (el._tooltext ? el._tooltext.textContent : el.textContent);
-    const hay = searchCaseSensitive ? text : text.toLowerCase();
-    if (hay.includes(q)) {
+    let matched;
+    if (re) { re.lastIndex = 0; matched = re.test(text); }
+    else {
+      const hay = searchCaseSensitive ? text : text.toLowerCase();
+      matched = hay.includes(q);
+    }
+    if (matched) {
       el.classList.add("match");
-      highlightSearchText(container, q, searchCaseSensitive);
+      highlightSearchText(container, q, searchCaseSensitive, re);
       chatMatches.push(el);
       found++;
     }
@@ -3056,6 +3105,26 @@ $("chatSearchCase").onclick = () => {
   searchCaseSensitive = !searchCaseSensitive;
   try { localStorage.setItem(SEARCH_CASE_KEY, searchCaseSensitive ? "on" : "off"); } catch (e) {}
   updateSearchCaseBtn();
+  applyChatSearch();
+};
+// 会話内検索の正規表現: 既定はふつうの文字列検索で、オンにすると
+// 入力を正規表現として扱う（「error|warn」でどちらかに一致、
+// 「\\d+」で数字の並び、など）。大文字小文字の区別は「Aa」と
+// 同じ設定を使う。選択は localStorage に保存し、切り替えると
+// その場で検索をかけ直す。ハイライトも正規表現の一致で付け直す。
+const SEARCH_REGEX_KEY = "oc-search-regex";
+let searchRegex = false;
+try { searchRegex = localStorage.getItem(SEARCH_REGEX_KEY) === "on"; } catch (e) {}
+function updateSearchRegexBtn() {
+  $("chatSearchRegex").classList.toggle("on", searchRegex);
+  $("chatSearchRegex").title = searchRegex
+    ? "正規表現で検索する（オン）" : "正規表現で検索する（オフ）";
+}
+updateSearchRegexBtn();
+$("chatSearchRegex").onclick = () => {
+  searchRegex = !searchRegex;
+  try { localStorage.setItem(SEARCH_REGEX_KEY, searchRegex ? "on" : "off"); } catch (e) {}
+  updateSearchRegexBtn();
   applyChatSearch();
 };
 $("chatSearch").addEventListener("input", applyChatSearch);
