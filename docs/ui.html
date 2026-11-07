@@ -82,6 +82,12 @@
   .msg.collapsed ._body { max-height: 11em; overflow: hidden;
     -webkit-mask-image: linear-gradient(#000 75%, transparent);
     mask-image: linear-gradient(#000 75%, transparent); }
+  /* 生成中のカーソル: 逐次表示の間だけ本文の末尾に点滅する ▍ を
+     置き、生成が続いていることが分かるようにする。テキストが
+     届かない間も点滅するので、止まっているのか待っているのかが
+     見分けられる。1秒ごとの点滅で、色は本文と同じ。 */
+  .msg .streamcursor { animation: blink 1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
   .usage { align-self: flex-start; color: #888; font-size: 12px; padding: 0 2px; }
   .tool { align-self: flex-start; color: #aaa; font-size: 12px; padding: 1px 6px;
           border-left: 2px solid #555; margin-left: 2px; }
@@ -235,7 +241,7 @@
   @media print {
     body { display: block; height: auto; background: #fff; color: #222; }
     #topbar, #searchBar, #composer, #statusBar, #drawer, #scrim,
-    #toLatest, #toTop, .copybtn, .codecopy, .codefoldbtn, #toolMenu { display: none !important; }
+    #toLatest, #toTop, .copybtn, .codecopy, .codefoldbtn, #toolMenu, .streamcursor { display: none !important; }
     #chatWrap { display: block; }
     main { overflow: visible; padding: 0; }
     .msg { max-width: 100%; background: #fff !important; color: #222 !important;
@@ -1104,7 +1110,26 @@ function setMsgText(div, text) {
     addCodeLangLabels(div);
     addCodeFoldButtons(div);
   } else div._body.textContent = text;
+  // 生成中のカーソル: 逐次表示の間だけ本文の末尾に点滅する ▍ を
+  // 置き、生成が続いていることが分かるようにする。innerHTML を
+  // 書き直すたびに消えるので、ここで付け直す。コピーや会話内
+  // 検索は _rawText を読むため、カーソルはそちらに入らない。
+  // 応答が終わったときは removeStreamCursor が外す。
+  if (div._streaming) {
+    const cur = document.createElement("span");
+    cur.className = "streamcursor";
+    cur.textContent = "▍";
+    div._body.appendChild(cur);
+  }
   updateFold(div);
+}
+// 生成中のカーソルを消す: setMsgText が逐次表示のたびに付け直す
+// ため、応答が終わったときはここで外すだけにする（本文の描き
+// 直しはしない）。send() の後始末で _streaming を落とした直後に
+// 呼ぶ。
+function removeStreamCursor(div) {
+  const cur = div._body.querySelector(".streamcursor");
+  if (cur) cur.remove();
 }
 // コードブロックのコピー: アシスタントの応答に含まれるフェンス付き
 // コードの右上に小さなコピーボタンを置く。メッセージ全体のコピー
@@ -2298,7 +2323,7 @@ async function send(resendText, record = true) {
     stopReplyTimer();
     pendingId = "";
     // 逐次表示が終わったので、長い応答はここで折りたたみ対象になる。
-    if (streamBubble) { streamBubble._streaming = false; updateFold(streamBubble); addCodeFoldButtons(streamBubble); }
+    if (streamBubble) { streamBubble._streaming = false; removeStreamCursor(streamBubble); updateFold(streamBubble); addCodeFoldButtons(streamBubble); }
     streamBubble = null;
     streamWait = null;
     streamParts = {};
