@@ -325,6 +325,7 @@
     <button id="themeToggle" class="actbtn">テーマ: 暗い</button>
     <button id="fontSizeToggle" class="actbtn">文字: 標準</button>
     <button id="mdToggle" class="actbtn">表示: Markdown</button>
+    <button id="copyFormatToggle" class="actbtn">コピー形式: Markdown</button>
     <button id="timeFormatToggle" class="actbtn">時刻表示: 絶対時刻</button>
     <button id="soundToggle" class="actbtn">通知音: オン</button>
     <button id="vibrateToggle" class="actbtn">バイブレーション: オン</button>
@@ -466,6 +467,50 @@ $("mdToggle").onclick = () => {
   applyMdToggle();
 };
 applyMdToggle();
+// メッセージの「コピー」ボタンが渡す形式の切り替え: Markdown の
+// まま（既定）と、見出し・太字・リンクなどの記号を外したプレーン
+// テキスト。チャットアプリなど書式の付かない場所へ貼るときは
+// テキストのほうが余計な記号が入らない。選択は localStorage に
+// 保存する。対象は各メッセージの「コピー」ボタンだけで、コード
+// ブロックのコピーや「会話をコピー」・書き出しは Markdown のまま。
+// 書式外しは簡易的なもので、入れ子になった記号までは追わない。
+const COPY_FMT_KEY = "oc-copy-format";
+let copyPlain = localStorage.getItem(COPY_FMT_KEY) === "text";
+function updateCopyFormatBtn() {
+  $("copyFormatToggle").textContent = "コピー形式: " + (copyPlain ? "テキスト" : "Markdown");
+}
+updateCopyFormatBtn();
+$("copyFormatToggle").onclick = () => {
+  copyPlain = !copyPlain;
+  try { localStorage.setItem(COPY_FMT_KEY, copyPlain ? "text" : "md"); } catch (e) {}
+  updateCopyFormatBtn();
+};
+function stripMarkdown(text) {
+  const lines = text.split("\n").map(line => {
+    let l = line;
+    // フェンスの区切り行は落とし、中のコードはそのまま残す。
+    if (/^\s*```/.test(l)) return "";
+    l = l.replace(/^\s*#{1,6}\s+/, "");
+    l = l.replace(/^\s*>\s?/, "");
+    l = l.replace(/^\s*[-*+]\s+/, "");
+    l = l.replace(/^\s*\d+[.)]\s+/, "");
+    // 水平線（--- など）は落とす。
+    if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(l)) return "";
+    return l;
+  });
+  let out = lines.join("\n");
+  // 画像は代替文だけ、リンクは表示文だけ残す。
+  out = out.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  out = out.replace(/\[([^\]]*)\]\([^)]*\)/g, "$1");
+  out = out.replace(/`([^`]+)`/g, "$1");
+  out = out.replace(/(\*\*|__)([^*]+)\1/g, "$2");
+  out = out.replace(/(\*|_)([^*_]+)\1/g, "$2");
+  out = out.replace(/~~([^~]+)~~/g, "$1");
+  // フェンスの抜けで増えた空行を2つまでに詰める。
+  out = out.replace(/\n{3,}/g, "\n\n");
+  // 先頭・末尾に残った空行も落とす。
+  return out.replace(/^\n+|\n+$/g, "");
+}
 // 応答完了を音で知らせる: 無料モデルは応答が遅いことがあるため、
 // 他のタブを見ている間に返信が終わっても気づけるよう、タブが隠れて
 // いるときだけ短い音を鳴らす。タブを見ているときは画面で分かるので
@@ -1346,7 +1391,8 @@ async function copyText(text) {
 // Copy a bubble's text to the clipboard; the button briefly shows
 // the result.
 async function copyMsg(div, btn) {
-  const ok = await copyText(div._rawText ?? div._body.textContent);
+  const raw = div._rawText ?? div._body.textContent;
+  const ok = await copyText(copyPlain ? stripMarkdown(raw) : raw);
   btn.textContent = ok ? "コピー済み" : "コピー失敗";
   setTimeout(() => { btn.textContent = "コピー"; }, 1500);
 }
