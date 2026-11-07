@@ -329,6 +329,7 @@
     <button id="soundToggle" class="actbtn">通知音: オン</button>
     <button id="vibrateToggle" class="actbtn">バイブレーション: オン</button>
     <button id="autoSpeakToggle" class="actbtn">自動読み上げ: オフ</button>
+    <button id="speakRateToggle" class="actbtn">読み上げ速度: 1倍</button>
     <button id="notifyToggle" class="actbtn">完了通知: オフ</button>
     <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
     <button id="autoFoldToggle" class="actbtn">自動折りたたみ: オン</button>
@@ -578,6 +579,35 @@ if ("speechSynthesis" in window) {
   };
 } else {
   $("autoSpeakToggle").style.display = "none";
+}
+// 読み上げの速さ: 既定は1倍で、押すたびに 1倍→1.25倍→1.5倍→
+// 0.75倍→1倍と巡回する。日本語の音声合成は1倍だとゆっくりに
+// 聞こえることがあるため、聞き取りやすい速さを選べるようにする。
+// 選択は localStorage に保存し、保存値が候補にないときは1倍に
+// 戻す。各応答の「読み上げ」ボタンと自動読み上げは同じ speakMsg
+// を使うので、どちらにも同じ速さがかかる。読み上げの途中で切り
+// 替えてもその読み上げにはかからず、次に読む文から変わる。音声
+// 合成に対応していないブラウザでは自動読み上げと同じくボタンを
+// 出さない。
+const SPEAK_RATE_KEY = "oc-speak-rate";
+const SPEAK_RATES = [1, 1.25, 1.5, 0.75];
+let speakRate = 1;
+try {
+  const saved = parseFloat(localStorage.getItem(SPEAK_RATE_KEY));
+  if (SPEAK_RATES.includes(saved)) speakRate = saved;
+} catch (e) {}
+function updateSpeakRateBtn() {
+  $("speakRateToggle").textContent = "読み上げ速度: " + speakRate + "倍";
+}
+if ("speechSynthesis" in window) {
+  updateSpeakRateBtn();
+  $("speakRateToggle").onclick = () => {
+    speakRate = SPEAK_RATES[(SPEAK_RATES.indexOf(speakRate) + 1) % SPEAK_RATES.length];
+    try { localStorage.setItem(SPEAK_RATE_KEY, String(speakRate)); } catch (e) {}
+    updateSpeakRateBtn();
+  };
+} else {
+  $("speakRateToggle").style.display = "none";
 }
 // 応答が終わったらブラウザ通知を出す: 音・振動・自動読み上げと
 // 同じくタブが隠れているときだけで、画面を見ているときは通知
@@ -1355,6 +1385,7 @@ function speakMsg(div, btn) {
   if (!text) return;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = "ja-JP";
+  u.rate = speakRate;
   u.onend = () => { if (speakingBtn === btn) stopSpeaking(); };
   u.onerror = () => { if (speakingBtn === btn) stopSpeaking(); };
   speakingBtn = btn;
