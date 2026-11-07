@@ -1968,10 +1968,11 @@ $("sortSessions").onclick = () => {
 updateSortBtn();
 
 // セッション一覧の表示絞り込み: すべて・ピンのみ・未読のみ・
-// 今日のみ・下書きのみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
+// 今日のみ・昨日のみ・下書きのみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
 // 一覧が長くなるため、見たいものだけに絞って切り替えられる
 // ようにする。今日のみは当日中に更新された会話だけを出すので、
-// 今日の作業に関係する会話へすぐ戻れる。下書きのみは送信していない
+// 今日の作業に関係する会話へすぐ戻れる。昨日のみは前日に更新
+// された会話だけを出すので、昨日の続きへすぐ戻れる。下書きのみは送信していない
 // 下書きのある会話だけを出すので、書きかけの文が残っている会話へ
 // すぐ戻れる。並び替えと同じく
 // localStorage に保存し、次回も使う。
@@ -1982,16 +1983,19 @@ const storedFilter = localStorage.getItem(LIST_FILTER_KEY);
 let listFilter = storedFilter === "pinned" || storedFilter === "on" ? "pinned"
   : storedFilter === "unread" ? "unread"
   : storedFilter === "today" ? "today"
+  : storedFilter === "yesterday" ? "yesterday"
   : storedFilter === "draft" ? "draft" : "all";
 function updatePinOnlyBtn() {
   $("pinOnlyToggle").textContent = listFilter === "pinned" ? "表示: ピンのみ"
     : listFilter === "unread" ? "表示: 未読のみ"
     : listFilter === "today" ? "表示: 今日のみ"
+    : listFilter === "yesterday" ? "表示: 昨日のみ"
     : listFilter === "draft" ? "表示: 下書きのみ" : "表示: すべて";
 }
 $("pinOnlyToggle").onclick = () => {
   listFilter = listFilter === "all" ? "pinned" : listFilter === "pinned" ? "unread"
-    : listFilter === "unread" ? "today" : listFilter === "today" ? "draft" : "all";
+    : listFilter === "unread" ? "today" : listFilter === "today" ? "yesterday"
+    : listFilter === "yesterday" ? "draft" : "all";
   try { localStorage.setItem(LIST_FILTER_KEY, listFilter); } catch (e) {}
   updatePinOnlyBtn();
   renderListOptions();
@@ -2136,7 +2140,8 @@ $("nextSession").onclick = () => stepSession(1);
 // pinned ones (pin-only), the ones with new messages (unread-only),
 // the ones updated today (today-only, judged by the local
 // calendar date of the session's updated time, falling back to
-// its created time), or the ones with an unsent draft
+// its created time), the ones updated yesterday (yesterday-only,
+// same date rule), or the ones with an unsent draft
 // (draft-only, see hasDraft). The selected session is always shown, so
 // filtering never loses the current selection or a just-created
 // session passed as selectedId. Pinned sessions come first (in the
@@ -2159,6 +2164,11 @@ function renderListOptions(selectedId) {
   none.textContent = "（セッション一覧）";
   listEl.appendChild(none);
   const sorted = [...allSessions].sort(compareSessions);
+  // 昨日の日付キー: 絞り込みが昨日のみのとき、今日のみと同じ
+  // dayKey で比べる。ループの外で一度だけ作る。
+  const yDay = new Date();
+  yDay.setDate(yDay.getDate() - 1);
+  const yesterdayKey = dayKey(yDay.getTime());
   let shown = 0;
   for (const s of sorted) {
     if (q && s.id !== want &&
@@ -2172,6 +2182,12 @@ function renderListOptions(selectedId) {
     // dayKey（現地の日付）を使う。
     if (listFilter === "today" && s.id !== want &&
         dayKey(s.time?.updated || s.time?.created || 0) !== dayKey(Date.now())) continue;
+    // 昨日のみ: 更新日時（なければ作成日時）が昨日の日付のもの
+    // だけを出す。今日のみと同じ dayKey の判定で、前日の日付と
+    // 比べる。setDate で1日戻すので、24時間引き算より夏時間の
+    // ある地域でも確実。時刻のないセッションは出ない。
+    if (listFilter === "yesterday" && s.id !== want &&
+        dayKey(s.time?.updated || s.time?.created || 0) !== yesterdayKey) continue;
     // 下書きのみ: 送信していない下書きのある会話だけを出す。
     // 書きかけの文がどの会話に残っているか、一覧で探さずに
     // 確認できる。開いている会話は絞り込み中も残る。
