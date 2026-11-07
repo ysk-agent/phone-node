@@ -334,6 +334,7 @@
     <button id="notifyToggle" class="actbtn">完了通知: オフ</button>
     <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
     <button id="autoFoldToggle" class="actbtn">自動折りたたみ: オン</button>
+    <button id="autoListToggle" class="actbtn">一覧の自動更新: オン</button>
     <button id="confirmSendToggle" class="actbtn">送信前に確認: オフ</button>
     <button id="shortcutBtn" class="actbtn">ショートカット</button>
   </div>
@@ -736,6 +737,32 @@ $("autoFoldToggle").onclick = () => {
   for (const div of chat.querySelectorAll(".msg")) updateFold(div);
   updateFoldAllBtn();
 };
+// セッション一覧の自動更新: 開いている会話のメッセージは 30 秒
+// ごとに自動で取り込まれるが、一覧のほうは「一覧更新」ボタンか
+// ローカルでの操作（送信・名前変更・削除など）のときしか取り直さ
+// れないため、他のブラウザで作った会話が一覧に出ないままになる。
+// オン（既定）のときは 60 秒ごとに一覧を取り直し、未読の「●」や
+// タブタイトルの件数も一緒に付け直す。応答待ちの間は送り終わって
+// からの一覧更新に任せて動かさず、一覧の選択肢を開いている最中
+// （フォーカスがある間）も描き直しで閉じてしまわないよう見送る。
+// 状態欄は触らないので、一時的な表示を上書きしない。選択は
+// localStorage に保存する。
+const LIST_KEY = "oc-autolist";
+let autoListOn = localStorage.getItem(LIST_KEY) !== "off";
+function updateAutoListBtn() {
+  $("autoListToggle").textContent = "一覧の自動更新: " + (autoListOn ? "オン" : "オフ");
+}
+updateAutoListBtn();
+$("autoListToggle").onclick = () => {
+  autoListOn = !autoListOn;
+  try { localStorage.setItem(LIST_KEY, autoListOn ? "on" : "off"); } catch (e) {}
+  updateAutoListBtn();
+};
+async function autoRefreshList() {
+  if (!autoListOn || pendingId) return;
+  if (document.activeElement === listEl) return;
+  try { await refreshList(undefined, true); } catch (e) { /* 取得に失敗したときは何もしない（接続監視が到達性を知らせる） */ }
+}
 // 送信前の確認: スマホで誤って Enter に触れたときなど、送るつもりの
 // ないプロンプトが送られるのを防ぐ。オンのときは入力欄からの送信
 // （Enter・送信ボタン）の直前に確認ダイアログを出し、キャンセル
@@ -1100,6 +1127,7 @@ async function checkConnection() {
 function startMonitor() {
   setInterval(checkConnection, 30000);
   setInterval(autoRefresh, 30000);
+  setInterval(autoRefreshList, 60000);
 }
 // 他のブラウザで送ったメッセージを自動で取り込む: この UI はスマホと
 // Mac の両方から開くため、片方で送った文がもう片方にいつまでも出ない
@@ -2322,7 +2350,7 @@ function renderListOptions(selectedId) {
   refreshTabTitle();
 }
 
-async function refreshList(selectId) {
+async function refreshList(selectId, quiet) {
   const sessions = await api("/session");
   sessions.sort((a, b) => (b.time?.updated || 0) - (a.time?.updated || 0));
   allSessions = sessions;
@@ -2332,7 +2360,9 @@ async function refreshList(selectId) {
   markSessionSeen(currentId);
   renderListOptions(selectId);
   reachable = true;
-  setStatus(lastLatency >= 0 ? "接続済み（" + lastLatency + "ms）" : "接続済み");
+  // quiet のときは状態欄を触らない（一覧の自動更新が「セッション
+  // 作成中…」のような一時的な表示を上書きしないようにする）。
+  if (!quiet) setStatus(lastLatency >= 0 ? "接続済み（" + lastLatency + "ms）" : "接続済み");
 }
 
 // 現在の会話のメッセージ件数をタイトルバーに表示する。長い会話
