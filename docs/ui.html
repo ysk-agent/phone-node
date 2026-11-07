@@ -1754,22 +1754,27 @@ $("sortSessions").onclick = () => {
 };
 updateSortBtn();
 
-// セッション一覧の表示絞り込み: すべて・ピンのみ・未読のみを
-// 順に切り替える。ピン留めした会話や未読の会話が増えてくると
+// セッション一覧の表示絞り込み: すべて・ピンのみ・未読のみ・
+// 今日のみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
 // 一覧が長くなるため、見たいものだけに絞って切り替えられる
-// ようにする。並び替えと同じく localStorage に保存し、次回も使う。
+// ようにする。今日のみは当日中に更新された会話だけを出すので、
+// 今日の作業に関係する会話へすぐ戻れる。並び替えと同じく
+// localStorage に保存し、次回も使う。
 // 絞り込み中でも開いているセッションは一覧に残す（検索と同じ扱い）。
 // 旧版で保存された "on" はピンのみとして読み替える。
 const LIST_FILTER_KEY = "oc-list-filter";
 const storedFilter = localStorage.getItem(LIST_FILTER_KEY);
 let listFilter = storedFilter === "pinned" || storedFilter === "on" ? "pinned"
-  : storedFilter === "unread" ? "unread" : "all";
+  : storedFilter === "unread" ? "unread"
+  : storedFilter === "today" ? "today" : "all";
 function updatePinOnlyBtn() {
   $("pinOnlyToggle").textContent = listFilter === "pinned" ? "表示: ピンのみ"
-    : listFilter === "unread" ? "表示: 未読のみ" : "表示: すべて";
+    : listFilter === "unread" ? "表示: 未読のみ"
+    : listFilter === "today" ? "表示: 今日のみ" : "表示: すべて";
 }
 $("pinOnlyToggle").onclick = () => {
-  listFilter = listFilter === "all" ? "pinned" : listFilter === "pinned" ? "unread" : "all";
+  listFilter = listFilter === "all" ? "pinned" : listFilter === "pinned" ? "unread"
+    : listFilter === "unread" ? "today" : "all";
   try { localStorage.setItem(LIST_FILTER_KEY, listFilter); } catch (e) {}
   updatePinOnlyBtn();
   renderListOptions();
@@ -1906,8 +1911,10 @@ $("nextSession").onclick = () => stepSession(1);
 // Rebuild the session dropdown from allSessions, keeping only the
 // sessions whose title or id contains the search box text (matched
 // case-insensitively), and, while the display filter is on, only the
-// pinned ones (pin-only) or the ones with new messages (unread-only).
-// The selected session is always shown, so
+// pinned ones (pin-only), the ones with new messages (unread-only),
+// or the ones updated today (today-only, judged by the local
+// calendar date of the session's updated time, falling back to
+// its created time). The selected session is always shown, so
 // filtering never loses the current selection or a just-created
 // session passed as selectedId. Pinned sessions come first (in the
 // chosen sort order), with a 📌 mark on their titles. A session
@@ -1936,6 +1943,12 @@ function renderListOptions(selectedId) {
         !s.id.toLowerCase().includes(q)) continue;
     if (listFilter === "pinned" && s.id !== want && !isPinned(s.id)) continue;
     if (listFilter === "unread" && s.id !== want && !hasNewMessages(s)) continue;
+    // 今日のみ: 更新日時（なければ作成日時）が今日の日付のもの
+    // だけを出す。時刻のないセッションは dayKey(0) が今日に
+    // ならないので出ない。日付の判定は日付の区切り線と同じ
+    // dayKey（現地の日付）を使う。
+    if (listFilter === "today" && s.id !== want &&
+        dayKey(s.time?.updated || s.time?.created || 0) !== dayKey(Date.now())) continue;
     const o = document.createElement("option");
     o.value = s.id;
     // A draft is saved on every input, and removed when sent, so
