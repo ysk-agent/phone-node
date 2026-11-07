@@ -2381,11 +2381,18 @@ function loadDraftFor(id) {
   autoResize();
   updateCharCount();
 }
-// 入力中のプロンプトの文字数をフッターに表示する。空のときは
-// 表示しない。[...value] で数えるので絵文字も1文字になる。
+// 入力中のプロンプトの文字数と概算トークン数をフッターに表示する。
+// 空のときは表示しない。[...value] で数えるので絵文字も1文字になる。
+// トークン数は目安で、実際の数え方はモデルごとに違う: 英数字や空白は
+// およそ4文字で1トークン、日本語などの文字は1文字でおよそ1トークン
+// として見積もる。送ったあとの正確な使用量は応答の使用量の行に出る。
 function updateCharCount() {
-  const n = [...$("input").value].length;
-  $("charCount").textContent = n ? n + "文字" : "";
+  const text = $("input").value;
+  const n = [...text].length;
+  if (!n) { $("charCount").textContent = ""; return; }
+  let tokens = 0;
+  for (const ch of text) tokens += ch.codePointAt(0) <= 0x7f ? 0.25 : 1;
+  $("charCount").textContent = n + "文字 · 約" + Math.max(1, Math.round(tokens)) + "トークン";
 }
 function autoResize() {
   const inputEl = $("input");
