@@ -1822,10 +1822,12 @@ $("sortSessions").onclick = () => {
 updateSortBtn();
 
 // セッション一覧の表示絞り込み: すべて・ピンのみ・未読のみ・
-// 今日のみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
+// 今日のみ・下書きのみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
 // 一覧が長くなるため、見たいものだけに絞って切り替えられる
 // ようにする。今日のみは当日中に更新された会話だけを出すので、
-// 今日の作業に関係する会話へすぐ戻れる。並び替えと同じく
+// 今日の作業に関係する会話へすぐ戻れる。下書きのみは送信していない
+// 下書きのある会話だけを出すので、書きかけの文が残っている会話へ
+// すぐ戻れる。並び替えと同じく
 // localStorage に保存し、次回も使う。
 // 絞り込み中でも開いているセッションは一覧に残す（検索と同じ扱い）。
 // 旧版で保存された "on" はピンのみとして読み替える。
@@ -1833,15 +1835,17 @@ const LIST_FILTER_KEY = "oc-list-filter";
 const storedFilter = localStorage.getItem(LIST_FILTER_KEY);
 let listFilter = storedFilter === "pinned" || storedFilter === "on" ? "pinned"
   : storedFilter === "unread" ? "unread"
-  : storedFilter === "today" ? "today" : "all";
+  : storedFilter === "today" ? "today"
+  : storedFilter === "draft" ? "draft" : "all";
 function updatePinOnlyBtn() {
   $("pinOnlyToggle").textContent = listFilter === "pinned" ? "表示: ピンのみ"
     : listFilter === "unread" ? "表示: 未読のみ"
-    : listFilter === "today" ? "表示: 今日のみ" : "表示: すべて";
+    : listFilter === "today" ? "表示: 今日のみ"
+    : listFilter === "draft" ? "表示: 下書きのみ" : "表示: すべて";
 }
 $("pinOnlyToggle").onclick = () => {
   listFilter = listFilter === "all" ? "pinned" : listFilter === "pinned" ? "unread"
-    : listFilter === "unread" ? "today" : "all";
+    : listFilter === "unread" ? "today" : listFilter === "today" ? "draft" : "all";
   try { localStorage.setItem(LIST_FILTER_KEY, listFilter); } catch (e) {}
   updatePinOnlyBtn();
   renderListOptions();
@@ -1979,9 +1983,10 @@ $("nextSession").onclick = () => stepSession(1);
 // sessions whose title or id contains the search box text (matched
 // case-insensitively), and, while the display filter is on, only the
 // pinned ones (pin-only), the ones with new messages (unread-only),
-// or the ones updated today (today-only, judged by the local
+// the ones updated today (today-only, judged by the local
 // calendar date of the session's updated time, falling back to
-// its created time). The selected session is always shown, so
+// its created time), or the ones with an unsent draft
+// (draft-only, see hasDraft). The selected session is always shown, so
 // filtering never loses the current selection or a just-created
 // session passed as selectedId. Pinned sessions come first (in the
 // chosen sort order), with a 📌 mark on their titles. A session
@@ -2016,16 +2021,16 @@ function renderListOptions(selectedId) {
     // dayKey（現地の日付）を使う。
     if (listFilter === "today" && s.id !== want &&
         dayKey(s.time?.updated || s.time?.created || 0) !== dayKey(Date.now())) continue;
+    // 下書きのみ: 送信していない下書きのある会話だけを出す。
+    // 書きかけの文がどの会話に残っているか、一覧で探さずに
+    // 確認できる。開いている会話は絞り込み中も残る。
+    if (listFilter === "draft" && s.id !== want && !hasDraft(s.id)) continue;
     const o = document.createElement("option");
     o.value = s.id;
     // A draft is saved on every input, and removed when sent, so
     // the stored value is current; an empty or whitespace-only
     // draft is not a draft worth marking.
-    let draftMark = "";
-    try {
-      const d = localStorage.getItem(draftKey(s.id));
-      if (d && d.trim()) draftMark = "✎ ";
-    } catch (e) { /* 下書きが読めなくても一覧表示には影響しない */ }
+    const draftMark = hasDraft(s.id) ? "✎ " : "";
     // A ● mark needs a seen record: a session never opened here
     // has none, so old sessions do not all look new on first use.
     // A manual unread mark (see markUnread) is the exception.
@@ -2463,6 +2468,18 @@ $("input").addEventListener("keydown", e => {
 // セッションへ移す。
 const DRAFT_KEY = "oc-draft";
 function draftKey(id) { return id ? "oc-draft-" + id : DRAFT_KEY; }
+// その会話に送信していない下書きがあるかどうか: 下書きは入力の
+// たびに保存され、送信時に消えるので、保存されている値がそのまま
+// 今の状態になる。空白だけの下書きは書きかけとは数えない。
+// 一覧の ✎ 印と「下書きのみ」の絞り込みで共通に使う。下書きが
+// 読めなくても一覧表示には影響しない。
+function hasDraft(id) {
+  if (!id) return false;
+  try {
+    const d = localStorage.getItem(draftKey(id));
+    return !!(d && d.trim());
+  } catch (e) { return false; }
+}
 function saveDraft() {
   try { localStorage.setItem(draftKey(currentId), $("input").value); } catch (e) {}
 }
