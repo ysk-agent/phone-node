@@ -794,11 +794,17 @@ let replyTimer = null;
 // タイマーの表示に「· N文字」として出し、生成が進んでいるか
 // が秒数だけでなく量でも分かるようにする。同期送信のときは
 // 逐次で届かないため 0 のまま（秒数だけの表示になる）。
+// firstTokenAt は最初のテキストが届いた時刻: 総応答時間とは別に
+// 「初回応答までの秒数」を使用量の行に出す。無料モデルは生成開始
+// までが遅いことがあるため、待たされたのが開始までか生成中かが
+// 分かる。同期送信やテキストなしの応答では 0 のまま。
 let streamChars = 0;
+let firstTokenAt = 0;
 function startReplyTimer() {
   stopReplyTimer();
   replyStart = Date.now();
   streamChars = 0;
+  firstTokenAt = 0;
   setStatus("応答中… 0秒");
   replyTimer = setInterval(() => {
     const s = Math.floor((Date.now() - replyStart) / 1000);
@@ -812,6 +818,11 @@ function stopReplyTimer() {
 }
 function replySeconds() {
   return replyStart ? Math.round((Date.now() - replyStart) / 1000) : null;
+}
+// 初回応答までの秒数（小数1桁）: 最初のテキストが届くまでの待ち
+// 時間。届いていなければ null になり、使用量の行には出ない。
+function firstTokenSeconds() {
+  return firstTokenAt ? (firstTokenAt - replyStart) / 1000 : null;
 }
 
 // Streaming state for the reply currently being awaited. The server
@@ -859,6 +870,7 @@ function onEvent(ev) {
     streamParts[p.part.id] = p.part.text;
     const full = Object.values(streamParts).join("");
     streamChars = full.length;
+    if (!firstTokenAt && full.length > 0) firstTokenAt = Date.now();
     setMsgText(streamBubble, full);
     scrollChat();
   } else if (ev.type === "message.part.updated" && p.part && p.part.type !== "text") {
@@ -1443,8 +1455,14 @@ function usageParts(info) {
   if (typeof info.cost === "number" && info.cost > 0) parts.push("コスト " + fmtCost(info.cost));
   return parts;
 }
-function addUsage(info, seconds) {
+function addUsage(info, seconds, firstSeconds) {
   const parts = usageParts(info);
+  // 初回応答までの秒数: 送信から最初のテキストが届くまで。総応答
+  // 時間の前に置くので「開始まで X.X秒 · 全体 Y秒」と読める。
+  // 同期送信やテキストなしの応答では firstSeconds が null なので
+  // 出ない。0.1秒単位で出す（1秒未満の丸めでは遅さが分からないため）。
+  if (typeof firstSeconds === "number" && firstSeconds >= 0)
+    parts.push("初回応答 " + firstSeconds.toFixed(1) + "秒");
   if (typeof seconds === "number" && seconds >= 0) parts.push("応答時間 " + seconds + "秒");
   // 生成速度: 出力トークン数を応答時間で割ったもの。無料モデルの
   // 速さの目安になる。応答時間が0秒（1秒未満の丸め）のときは
@@ -2140,7 +2158,7 @@ async function streamReply(id, text, wait) {
       setMsgTime(streamBubble, msgTime(last));
     }
     syncPartLines(last);
-    addUsage(last && last.info, replySeconds());
+    addUsage(last && last.info, replySeconds(), firstTokenSeconds());
   } catch (e) { /* keep whatever streamed in; the list refresh follows */ }
   if (streamWait) { streamWait.remove(); streamWait = null; }
   if (aborted) addMsg("sys", "中断しました");
