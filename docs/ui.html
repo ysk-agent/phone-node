@@ -331,6 +331,7 @@
     <button id="notifyToggle" class="actbtn">完了通知: オフ</button>
     <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
     <button id="autoFoldToggle" class="actbtn">自動折りたたみ: オン</button>
+    <button id="confirmSendToggle" class="actbtn">送信前に確認: オフ</button>
     <button id="shortcutBtn" class="actbtn">ショートカット</button>
   </div>
 </aside>
@@ -658,6 +659,23 @@ $("autoFoldToggle").onclick = () => {
   updateAutoFoldBtn();
   for (const div of chat.querySelectorAll(".msg")) updateFold(div);
   updateFoldAllBtn();
+};
+// 送信前の確認: スマホで誤って Enter に触れたときなど、送るつもりの
+// ないプロンプトが送られるのを防ぐ。オンのときは入力欄からの送信
+// （Enter・送信ボタン）の直前に確認ダイアログを出し、キャンセル
+// なら入力欄と下書きはそのまま残す。再送信・続きの生成・作り直し
+// は送る文が画面にすでに出ているため確認しない。既定はオフで、
+// 選択は localStorage に保存する。
+const CONFIRM_SEND_KEY = "oc-confirm-send";
+let confirmSendOn = localStorage.getItem(CONFIRM_SEND_KEY) === "on";
+function updateConfirmSendBtn() {
+  $("confirmSendToggle").textContent = "送信前に確認: " + (confirmSendOn ? "オン" : "オフ");
+}
+updateConfirmSendBtn();
+$("confirmSendToggle").onclick = () => {
+  confirmSendOn = !confirmSendOn;
+  try { localStorage.setItem(CONFIRM_SEND_KEY, confirmSendOn ? "on" : "off"); } catch (e) {}
+  updateConfirmSendBtn();
 };
 // メッセージの時刻表示の切り替え: 絶対時刻（M/D HH:MM、既定）と
 // 相対時刻（「3分前」「2時間前」）を切り替える。最近のやり取りは
@@ -2311,6 +2329,12 @@ let lastSentText = "";
 async function send(resendText, record = true) {
   const text = (resendText ?? $("input").value).trim();
   if (!text) return;
+  // 入力欄からの送信だけ、確認がオンなら送る前に尋ねる。長い文は
+  // 先頭だけ見せ、キャンセルなら入力欄も下書きも残したまま戻る。
+  if (resendText === undefined && confirmSendOn) {
+    const head = text.length > 80 ? text.slice(0, 80) + "…" : text;
+    if (!confirm("このプロンプトを送信しますか？\n「" + head + "」")) return;
+  }
   // 送信に使ったモデルを最近使ったモデルとして記録する（続きの
   // 生成でもモデルは使うので、記録しない送信でも記録する）。
   recordRecentModel();
