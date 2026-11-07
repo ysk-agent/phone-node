@@ -159,6 +159,7 @@
   #server, #serverHistory { width: 100%; box-sizing: border-box; }
   #curId { color: #888; font-size: 11px; word-break: break-all; }
   #curCount { color: #888; font-size: 11px; white-space: nowrap; }
+  #curTimes { color: #888; font-size: 11px; white-space: nowrap; }
   #drawer .actbtn { width: 100%; box-sizing: border-box; text-align: left;
                     background: #222; border: 1px solid #3a3a3a; color: #eee; }
   #deleteSession { background: #5a2323; border-color: #7a3030; }
@@ -170,7 +171,7 @@
   body.light #drawerBtn { color: #222; border-color: #bbb; }
   body.light #searchBar { background: #ececec; border-color: #ddd; }
   body.light #chatSearchCount, body.light #sessionCount,
-  body.light #curId, body.light #curCount { color: #666; }
+  body.light #curId, body.light #curCount, body.light #curTimes { color: #666; }
   body.light input, body.light select { background: #fff; color: #222; border-color: #bbb; }
   body.light #statusBar { background: #ececec; border-color: #ddd; }
   body.light #status { color: #2a7a2a; }
@@ -280,6 +281,7 @@
     <div class="drawerRow"><input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"><span id="sessionCount"></span></div>
     <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="pinOnlyToggle">表示: すべて</button><button id="refreshList">一覧更新</button></div>
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
+    <div class="drawerRow"><span id="curTimes"></span></div>
     <button id="markAllSeen" class="actbtn">すべて既読にする</button>
     <button id="markUnread" class="actbtn">未読に戻す</button>
     <button id="nextUnread" class="actbtn">次の未読へ</button>
@@ -1947,6 +1949,7 @@ function renderListOptions(selectedId) {
     if (cur) {
       $("curTitle").textContent = cur.title || "(無題)";
       $("curId").textContent = cur.id;
+      setCurTimes(cur.id);
     }
   }
   refreshTabTitle();
@@ -1970,6 +1973,22 @@ async function refreshList(selectId) {
 // なので、サーバへの追加の問い合わせは不要。
 function setMsgCount(n) {
   $("curCount").textContent = typeof n === "number" && n > 0 ? n + "件のメッセージ" : "";
+}
+
+// 現在の会話の作成日時と更新日時をドロワーに表示する。一覧の
+// 取得で得たセッション情報（time.created / time.updated）から
+// 読むだけなので、サーバへの追加の問い合わせは不要。作成と
+// 更新が同じ時刻（まだ返信のない会話）のときは作成だけを出し、
+// 時刻がないときは何も出さない。一覧の更新でも描き直すので、
+// 送信後の更新日時も追従する。
+function setCurTimes(id) {
+  const s = id && allSessions.find(x => x.id === id);
+  const parts = [];
+  const created = s && s.time && s.time.created;
+  const updated = s && s.time && s.time.updated;
+  if (created) parts.push("作成 " + fmtTime(created));
+  if (updated && updated !== created) parts.push("更新 " + fmtTime(updated));
+  $("curTimes").textContent = parts.join(" · ");
 }
 
 // 巻き戻し中の表示: 取得した履歴から巻き戻し点以降を除く。
@@ -2039,6 +2058,7 @@ async function selectSession(id, load) {
   // of them for the title bar; the title itself never contains them.
   $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0].replace(/^(?:📌 |● |✎ )+/g, "") : "(無題)";
   $("curId").textContent = id;
+  setCurTimes(id);
   refreshTabTitle();
   updateShareUrl();
   if (load) await loadMessages(id);
@@ -2891,6 +2911,7 @@ $("deleteSession").onclick = async () => {
     setMsgCount(0);
     $("curTitle").textContent = "（セッション未選択）";
     $("curId").textContent = "";
+    $("curTimes").textContent = "";
     updateShareUrl();
     await refreshList();
     addMsg("sys", "セッションを削除しました");
@@ -3186,6 +3207,7 @@ async function switchServerSession() {
       setMsgCount(0);
       $("curTitle").textContent = "（セッション未選択）";
       $("curId").textContent = "";
+      $("curTimes").textContent = "";
       updatePinBtn();
       updateShareUrl();
       refreshTabTitle();
