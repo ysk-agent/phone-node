@@ -300,7 +300,7 @@
     <div class="drawerRow"><span id="curTimes"></span></div>
     <button id="markAllSeen" class="actbtn">すべて既読にする</button>
     <button id="markUnread" class="actbtn">未読に戻す</button>
-    <button id="nextUnread" class="actbtn">次の未読へ</button>
+    <button id="nextUnread" class="actbtn" title="次の未読へ（Uキーでも移動できます）">次の未読へ</button>
     <div class="drawerRow"><button id="prevSession">← 前の会話へ</button><button id="nextSession">次の会話へ →</button></div>
     <button id="copyLink" class="actbtn">リンクをコピー</button>
     <button id="rename" class="actbtn">名前変更</button>
@@ -347,6 +347,7 @@
     <tr><td><kbd>/</kbd></td><td>入力欄へ移動する</td></tr>
     <tr><td><kbd>N</kbd></td><td>新しいセッションを開始する（入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>D</kbd></td><td>メニュー（ドロワー）を開く／閉じる（入力欄以外で押したとき）</td></tr>
+    <tr><td><kbd>U</kbd></td><td>次の未読へ移動する（ドロワーの「次の未読へ」と同じ、入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>?</kbd></td><td>この一覧を開く（入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>この一覧を閉じる</td></tr>
     <tr><td><kbd>Esc</kbd></td><td>応答中の生成を中断する（ドロワーやメニューが開いているときはそちらを閉じる）</td></tr>
@@ -3467,6 +3468,15 @@ document.addEventListener("keydown", e => {
     // クリックと同じ処理（開くときの一覧の描き直しも走る）。
     if (drawerEl.classList.contains("open")) closeDrawer();
     else $("drawerBtn").click();
+    return;
+  }
+  if ((e.key === "u" || e.key === "U") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey
+      && !shortcutDialog.open) {
+    // 次の未読へ。ドロワーのボタンと同じ処理: 未読がなければ
+    // ボタンが無効化されているので click しても何も起きない。
+    // nextUnread がドロワーを閉じて会話を選ぶので、ボタンと
+    // 同じ動きになる。
+    $("nextUnread").click();
     return;
   }
   if (e.key === "?" && !typing) {
