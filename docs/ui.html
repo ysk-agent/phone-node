@@ -295,7 +295,7 @@
   <div class="drawerSection">
     <h2>セッション</h2>
     <select id="sessionList"><option value="">（セッション一覧）</option></select>
-    <div class="drawerRow"><input id="sessionSearch" type="search" placeholder="タイトルで絞り込み"><span id="sessionCount"></span></div>
+    <div class="drawerRow"><input id="sessionSearch" type="search" placeholder="タイトルで絞り込み" title="Enter で絞り込んだ先頭の会話を開きます"><span id="sessionCount"></span></div>
     <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="pinOnlyToggle">表示: すべて</button><button id="refreshList">一覧更新</button></div>
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
     <div class="drawerRow"><span id="curTimes"></span></div>
@@ -352,6 +352,7 @@
     <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>会話内検索へ移動する</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>現在の会話を Markdown として書き出す（ドロワーの「書き出し」と同じ）</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>会話内検索で次の一致へ移動する（<kbd>Shift</kbd> + <kbd>Enter</kbd> は前の一致へ）</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>セッションの絞り込み欄で絞り込んだ先頭の会話を開く</td></tr>
     <tr><td><kbd>/</kbd></td><td>入力欄へ移動する</td></tr>
     <tr><td><kbd>N</kbd></td><td>新しいセッションを開始する（入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>D</kbd></td><td>メニュー（ドロワー）を開く／閉じる（入力欄以外で押したとき）</td></tr>
@@ -3193,6 +3194,18 @@ listEl.onchange = async () => {
 // Filter the session dropdown as the user types; no server fetch,
 // since allSessions already holds the fetched list.
 $("sessionSearch").addEventListener("input", () => renderListOptions());
+// 絞り込み欄で Enter を押すと、絞り込んだ先頭の会話を開く。
+// 一覧の選択肢は並び替え・絞り込み済みの順に並んでいるので、
+// 先頭の選択肢がそのまま「一番上の会話」になる。ドロワーも
+// 閉じるので、一覧から選んだときと同じ動きになる。すでに
+// 開いている会話のときや該当がないときは何もしない。
+$("sessionSearch").addEventListener("keydown", async (e) => {
+  if (e.key !== "Enter") return;
+  const first = [...listEl.options].find(o => o.value);
+  if (!first || first.value === currentId) return;
+  try { await selectSession(first.value, true); setStatus("接続済み"); closeDrawer(); }
+  catch (err) { setStatus("エラー: " + err.message, true); }
+});
 // 会話内検索: 現在の会話から入力した語を含むメッセージだけを
 // 目立たせ、それ以外を薄くする。検索は表示中のメッセージだけが
 // 対象で、サーバへの問い合わせはしない。検索欄はセッションを
