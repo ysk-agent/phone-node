@@ -337,6 +337,7 @@
     <button id="autoFoldToggle" class="actbtn">自動折りたたみ: オン</button>
     <button id="autoListToggle" class="actbtn">一覧の自動更新: オン</button>
     <button id="confirmSendToggle" class="actbtn">送信前に確認: オフ</button>
+    <button id="resetSettings" class="actbtn">設定を初期値に戻す</button>
     <button id="shortcutBtn" class="actbtn">ショートカット</button>
   </div>
 </aside>
@@ -3870,6 +3871,26 @@ updateFavModelBtn();
 const shortcutDialog = $("shortcutHelp");
 $("shortcutBtn").onclick = () => shortcutDialog.showModal();
 $("shortcutClose").onclick = () => shortcutDialog.close();
+// 設定を初期値に戻す: テーマ・文字サイズ・通知などの表示や動作に
+// 関わる設定だけを消し、ページを読み直して既定値で開き直す。
+// 下書き・定型文・送信履歴・ピン留め・お気に入りモデル・サーバ
+// 履歴・接続先は残すため、消す鍵はここに並べたものだけにする。
+// 鍵はファイル全体に散らばっているので、この処理はスクリプトの
+// 末尾に置き、どの鍵の定義よりも後で実行されるようにする。
+// 確認ダイアログで断れば何も消さない。
+const RESET_SETTINGS_KEYS = [
+  THEME_KEY, FONT_KEY, MD_KEY, COPY_FMT_KEY, SOUND_KEY, VIBRATE_KEY,
+  AUTO_SPEAK_KEY, SPEAK_RATE_KEY, NOTIFY_KEY, SCROLL_KEY, FOLD_KEY,
+  LIST_KEY, CONFIRM_SEND_KEY, TIME_FMT_KEY, SORT_KEY, LIST_FILTER_KEY,
+  ENTER_KEY, SEARCH_CASE_KEY, SEARCH_REGEX_KEY
+];
+$("resetSettings").onclick = () => {
+  if (!confirm("テーマや文字サイズ、通知などの表示・動作の設定を初期値に戻しますか？下書き・定型文・送信履歴・ピン留め・サーバ履歴はそのまま残ります。")) return;
+  try {
+    for (const k of RESET_SETTINGS_KEYS) localStorage.removeItem(k);
+  } catch (e) { /* 消せなくても読み直しはする */ }
+  location.reload();
+};
 shortcutDialog.addEventListener("click", e => {
   if (e.target === shortcutDialog) shortcutDialog.close();
 });
