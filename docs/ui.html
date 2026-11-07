@@ -1999,8 +1999,13 @@ function nextUnread() {
   closeDrawer();
   selectSession(next.id, true).catch(e => setStatus("エラー: " + e.message, true));
 }
+// 未読の件数をボタンにも出す: ドロワーを開かなくても未読が何件
+// あるか分かるようにする。件数が 0 のときは付けない（そのときは
+// ボタンが無効化されているため）。一覧の描き直しのたびに付け直す。
 function updateNextUnreadBtn() {
-  $("nextUnread").disabled = !allSessions.some(s => hasNewMessages(s));
+  const n = unreadCount();
+  $("nextUnread").disabled = n === 0;
+  $("nextUnread").textContent = n > 0 ? "次の未読へ（" + n + "件）" : "次の未読へ";
 }
 $("nextUnread").onclick = nextUnread;
 
