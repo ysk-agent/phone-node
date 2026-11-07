@@ -260,7 +260,7 @@
 </head>
 <body>
 <div id="topbar"><button id="drawerBtn" title="メニュー（Dキーでも開けます）">☰</button><span id="curTitle">（セッション未選択）</span><button id="newSession" title="新規セッション（Nキーでも開始できます）">＋</button></div>
-<div id="searchBar"><input id="chatSearch" type="search" placeholder="会話内を検索"><button id="chatSearchCase" class="copybtn" title="大文字と小文字を区別する">Aa</button><button id="chatSearchRegex" class="copybtn" title="正規表現で検索する">.*</button><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="chatSearchClose" class="copybtn">閉じる</button></div>
+<div id="searchBar"><input id="chatSearch" type="search" placeholder="会話内を検索"><button id="chatSearchCase" class="copybtn" title="大文字と小文字を区別する">Aa</button><button id="chatSearchRegex" class="copybtn" title="正規表現で検索する">.*</button><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="chatSearchClose" class="copybtn" title="閉じる（検索をクリアする）">閉じる</button></div>
 <div id="chatWrap"><main id="chat"></main><button id="toLatest">最新へ ↓</button><button id="toTop">先頭へ ↑</button></div>
 <div id="statusBar"><span id="status">未接続</span></div>
 <div id="composer">
@@ -3336,6 +3336,18 @@ function applyChatSearch() {
   $("chatSearchPrev").disabled = !chatMatches.length;
   $("chatSearchNext").disabled = !chatMatches.length;
 }
+// 検索バーを閉じるときに検索をクリアする: 閉じるだけでは検索語が
+// 残り、一致しないメッセージが薄くなったまま・ハイライトが残った
+// ままになるため、入力欄を空にして applyChatSearch をかけ直す。
+// 空の検索語では applyChatSearch が薄く表示とハイライトを消し、
+// 検索で開いた折りたたみも元に戻す。検索語がすでになければ何も
+// 変わらない。閉じる操作は「閉じる」ボタンと Esc の2か所にあり、
+// どちらからもこの関数を呼ぶ。
+function clearChatSearch() {
+  if (!$("chatSearch").value) return;
+  $("chatSearch").value = "";
+  applyChatSearch();
+}
 // 会話内検索で一致したメッセージの折りたたみを一時的に開く: 長い
 // メッセージは先頭だけが見えているため、折りたたまれたままでは一致
 // 箇所が隠れて「N件」と出てもハイライトが見えない。検索で一致した
@@ -4063,8 +4075,10 @@ document.getElementById("openChatSearch").onclick = () => {
   showSearchBar();
   document.getElementById("chatSearch").focus();
 };
-document.getElementById("chatSearchClose").onclick = () =>
+document.getElementById("chatSearchClose").onclick = () => {
+  clearChatSearch();
   searchBarEl.classList.remove("open");
+};
 // Ctrl+K への既存の処理（検索欄へのフォーカス）は、隠れている欄
 // では効かないため、捕捉フェーズで先にバーを開く。Esc は開いて
 // いるものを閉じるのが先で、ドロワー・メニュー・検索バーのどれも
@@ -4076,11 +4090,16 @@ document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) showSearchBar();
   if (e.key === "Escape") {
     const dialogOpen = document.getElementById("shortcutHelp").open;
+    const searchWasOpen = searchBarEl.classList.contains("open");
     const hadOpen = drawerEl.classList.contains("open") ||
       toolMenuEl.classList.contains("open") ||
-      searchBarEl.classList.contains("open");
+      searchWasOpen;
     closeDrawer(); closeMenu();
     searchBarEl.classList.remove("open");
+    // 検索バーが開いていたときは閉じると同時に検索もクリアする
+    // （「閉じる」ボタンと同じ扱い）。薄く表示とハイライトが残
+    // らないようにする。
+    if (searchWasOpen) clearChatSearch();
     if (!dialogOpen && !hadOpen && !$("abort").disabled) abortReply();
   }
 }, true);
