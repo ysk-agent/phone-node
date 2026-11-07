@@ -105,6 +105,9 @@
      明るい表示では背景が白に近いので、少し濃い黄色にする。 */
   mark.search-hl { background: #8a6d1a; color: #fff; border-radius: 2px; padding: 0 1px; }
   body.light mark.search-hl { background: #ffe08a; color: #111; }
+  /* 会話内検索の大文字小文字の区別: オン（青）のときだけ区別する。
+     既定のオフではボタンは他の検索ボタンと同じ見た目。 */
+  #chatSearchCase.on { background: #2d5a8f; border-color: #2d5a8f; color: #fff; }
   /* 会話をさかのぼって読んでいるときだけ出る「最新へ」ボタンと、
      対になる「先頭へ」ボタン。会話エリアの右下に浮かせ、表示・
      非表示は JS が切り替える。 */
@@ -256,7 +259,7 @@
 </head>
 <body>
 <div id="topbar"><button id="drawerBtn" title="メニュー（Dキーでも開けます）">☰</button><span id="curTitle">（セッション未選択）</span><button id="newSession" title="新規セッション（Nキーでも開始できます）">＋</button></div>
-<div id="searchBar"><input id="chatSearch" type="search" placeholder="会話内を検索"><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="chatSearchClose" class="copybtn">閉じる</button></div>
+<div id="searchBar"><input id="chatSearch" type="search" placeholder="会話内を検索"><button id="chatSearchCase" class="copybtn" title="大文字と小文字を区別する">Aa</button><span id="chatSearchCount"></span><button id="chatSearchPrev" class="copybtn" disabled>↑ 前へ</button><button id="chatSearchNext" class="copybtn" disabled>↓ 次へ</button><button id="chatSearchClose" class="copybtn">閉じる</button></div>
 <div id="chatWrap"><main id="chat"></main><button id="toLatest">最新へ ↓</button><button id="toTop">先頭へ ↑</button></div>
 <div id="statusBar"><span id="status">未接続</span></div>
 <div id="composer">
@@ -2841,7 +2844,9 @@ $("sessionSearch").addEventListener("input", () => renderListOptions());
 // 会話内検索: 現在の会話から入力した語を含むメッセージだけを
 // 目立たせ、それ以外を薄くする。検索は表示中のメッセージだけが
 // 対象で、サーバへの問い合わせはしない。検索欄はセッションを
-// 切り替えても残るので、同じ語で別の会話も探せる。
+// 切り替えても残るので、同じ語で別の会話も探せる。検索欄の隣の
+// 「Aa」ボタンで大文字と小文字を区別するかどうかを切り替えられ、
+// 既定は区別しない。
 // 「次へ／前へ」ボタンで一致したメッセージへ順に移動できる。
 // 長い会話では一致箇所まで手で探す必要がなくなる。現在位置の
 // 一致は枠を太くして示し、件数表示は「何番目/全件」になる。
@@ -2859,15 +2864,28 @@ function clearSearchHighlights(root) {
   }
   root.normalize();
 }
-function highlightSearchText(root, q) {
+// 会話内検索の大文字小文字の区別: 既定は区別しない（日本語の会話では
+// 大文字小文字の違いを意識しない検索のほうが当たりやすい）。オンに
+// すると "Error" と "error" が別物になり、英語の識別子や固有名詞を
+// 探すときに絞り込める。選択は localStorage に保存し、切り替えると
+// その場で検索をかけ直す。ハイライトも同じ区別で付け直す。
+const SEARCH_CASE_KEY = "oc-search-case";
+let searchCaseSensitive = false;
+try { searchCaseSensitive = localStorage.getItem(SEARCH_CASE_KEY) === "on"; } catch (e) {}
+function updateSearchCaseBtn() {
+  $("chatSearchCase").classList.toggle("on", searchCaseSensitive);
+  $("chatSearchCase").title = searchCaseSensitive
+    ? "大文字と小文字を区別する（オン）" : "大文字と小文字を区別しない（オフ）";
+}
+function highlightSearchText(root, q, caseSensitive) {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (walker.nextNode()) nodes.push(walker.currentNode);
   for (const node of nodes) {
     if (node.parentNode.closest("button")) continue;
     const text = node.nodeValue;
-    const lower = text.toLowerCase();
-    let idx = lower.indexOf(q);
+    const hay = caseSensitive ? text : text.toLowerCase();
+    let idx = hay.indexOf(q);
     if (idx < 0) continue;
     const frag = document.createDocumentFragment();
     let pos = 0;
@@ -2878,14 +2896,15 @@ function highlightSearchText(root, q) {
       mark.textContent = text.slice(idx, idx + q.length);
       frag.appendChild(mark);
       pos = idx + q.length;
-      idx = lower.indexOf(q, pos);
+      idx = hay.indexOf(q, pos);
     }
     if (pos < text.length) frag.appendChild(document.createTextNode(text.slice(pos)));
     node.parentNode.replaceChild(frag, node);
   }
 }
 function applyChatSearch() {
-  const q = $("chatSearch").value.trim().toLowerCase();
+  const raw = $("chatSearch").value.trim();
+  const q = searchCaseSensitive ? raw : raw.toLowerCase();
   chatMatches = [];
   chatMatchIndex = -1;
   let found = 0;
@@ -2895,9 +2914,10 @@ function applyChatSearch() {
     clearSearchHighlights(container);
     if (!q) continue;
     const text = el._body ? el._body.textContent : (el._tooltext ? el._tooltext.textContent : el.textContent);
-    if (text.toLowerCase().includes(q)) {
+    const hay = searchCaseSensitive ? text : text.toLowerCase();
+    if (hay.includes(q)) {
       el.classList.add("match");
-      highlightSearchText(container, q);
+      highlightSearchText(container, q, searchCaseSensitive);
       chatMatches.push(el);
       found++;
     }
@@ -2919,6 +2939,13 @@ function jumpChatMatch(dir) {
 }
 $("chatSearchPrev").onclick = () => jumpChatMatch(-1);
 $("chatSearchNext").onclick = () => jumpChatMatch(1);
+updateSearchCaseBtn();
+$("chatSearchCase").onclick = () => {
+  searchCaseSensitive = !searchCaseSensitive;
+  try { localStorage.setItem(SEARCH_CASE_KEY, searchCaseSensitive ? "on" : "off"); } catch (e) {}
+  updateSearchCaseBtn();
+  applyChatSearch();
+};
 $("chatSearch").addEventListener("input", applyChatSearch);
 // 会話内検索で Enter を押すと次の一致へ移動する（Shift+Enter は
 // 前の一致へ）。検索欄にいるときだけの操作で、一致がなければ
