@@ -48,6 +48,12 @@
      pre の右上に固定される。 */
   .msg pre { position: relative; }
   .msg pre .codecopy { position: absolute; top: 6px; right: 6px; }
+  /* コードブロックの言語名: フェンスに書かれた言語（python や
+     js など）をコードの左上に小さく出す。右上のコピーボタンと
+     対になる位置で、言語が書かれていないコードには出さない。
+     ラベルがコードの1行目に重ならないよう、付けた pre の上の
+     余白は付ける側（addCodeLangLabels）で広げる。 */
+  .msg pre .codelang { position: absolute; top: 6px; left: 8px; font-size: 11px; color: #888; }
   /* 長いコードブロックの折りたたみ: 20行を超えるコードは最初は
      先頭だけを表示し、上のボタンで全体を開く。長いメッセージの
      折りたたみと同じ見せ方で、下端をフェードさせる。 */
@@ -187,6 +193,7 @@
   body.light #deleteSession { background: #a33333; border-color: #a33333; color: #fff; }
   body.light .msg a { color: #1a5fb4; }
   body.light .msg pre { background: #eee; border-color: #ccc; }
+  body.light .msg pre .codelang { color: #666; }
   body.light .msg code { background: rgba(0,0,0,.07); }
   body.light .msg pre code { background: none; }
   body.light .user { background: #2d5a8f; color: #fff; }
@@ -236,7 +243,7 @@
     .msg a { color: #1a5fb4; }
     .msg pre { background: #f0f0f0; border-color: #999; }
     .msg code { background: rgba(0,0,0,.07); }
-    .msgtime, .usage, .tool { color: #555; }
+    .msgtime, .usage, .tool, .msg pre .codelang { color: #555; }
     .sys { color: #555; }
   }
 </style>
@@ -994,13 +1001,21 @@ function renderMarkdown(text) {
   let html = "";
   let inFence = false;
   let fenceBuf = [];
+  let fenceLang = "";
+  // フェンスの言語は pre の data-lang に残す: 言語名の表示は
+  // addCodeLangLabels がここを読む。c++ や objective-c のように
+  // + や - を含む言語もあるため、\w だけでなくそれらも許す。
+  // 言語は escHtml 済みの行から取るので、使える文字は英数字と
+  // _ + - だけになり、そのまま属性に入れても安全。
+  const fenceOpen = lang => "<pre" + (lang ? ' data-lang="' + lang + '"' : "") + "><code>";
   for (const line of lines) {
-    if (/^```\w*\s*$/.test(line)) {
+    const fence = line.match(/^```([A-Za-z0-9_+-]*)\s*$/);
+    if (fence) {
       if (inFence) {
-        html += "<pre><code>" + fenceBuf.join("\n") + "</code></pre>";
+        html += fenceOpen(fenceLang) + fenceBuf.join("\n") + "</code></pre>";
         fenceBuf = [];
         inFence = false;
-      } else inFence = true;
+      } else { inFence = true; fenceLang = fence[1] || ""; }
       continue;
     }
     if (inFence) { fenceBuf.push(line); continue; }
@@ -1008,7 +1023,7 @@ function renderMarkdown(text) {
     if (h) html += '<div class="md-h' + h[1].length + '">' + renderInline(h[2]) + "</div>\n";
     else html += renderInline(line) + "\n";
   }
-  if (inFence) html += "<pre><code>" + fenceBuf.join("\n") + "</code></pre>";
+  if (inFence) html += fenceOpen(fenceLang) + fenceBuf.join("\n") + "</code></pre>";
   return html;
 }
 // A message bubble keeps its text in a child node, so the time
@@ -1084,6 +1099,7 @@ function setMsgText(div, text) {
   if (div._rich && markdownOn) {
     div._body.innerHTML = renderMarkdown(text);
     addCodeCopyButtons(div);
+    addCodeLangLabels(div);
     addCodeFoldButtons(div);
   } else div._body.textContent = text;
   updateFold(div);
@@ -1106,6 +1122,25 @@ function addCodeCopyButtons(div) {
       setTimeout(() => { btn.textContent = "コピー"; }, 1500);
     };
     pre.appendChild(btn);
+  }
+}
+// コードブロックの言語名: フェンスに書かれた言語をコードの左上に
+// 小さく出す。renderMarkdown が pre に付けた data-lang を読むので、
+// 言語のないコードには何も出さない。ラベルがコードの1行目に重な
+// らないよう、付けた pre の上の余白を広げる。コピーボタンと同じく
+// 逐次表示で innerHTML を書き直すたびに付け直すので、既に付いて
+// いる pre には付けない。言語名は表示だけで、コードのコピーや
+// 会話内検索の対象にはならない（コピーは code 要素だけを読む）。
+function addCodeLangLabels(div) {
+  for (const pre of div._body.querySelectorAll("pre")) {
+    if (pre.querySelector(".codelang")) continue;
+    const lang = pre.dataset ? pre.dataset.lang : "";
+    if (!lang) continue;
+    const span = document.createElement("span");
+    span.className = "codelang";
+    span.textContent = lang;
+    pre.appendChild(span);
+    pre.style.paddingTop = "26px";
   }
 }
 // 長いコードブロックの折りたたみ: 20行を超えるコードは最初は
