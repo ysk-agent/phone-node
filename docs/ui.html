@@ -1472,6 +1472,13 @@ function dayKey(ms) {
   const d = new Date(ms);
   return d.getFullYear() + "-" + (d.getMonth() + 1) + "-" + d.getDate();
 }
+// その日の始まり（現地の 0時0分0秒）の時刻。日付同士の範囲
+// 比較に使う。dayKey は文字列のため大小の比較には向かない。
+function dayStartMs(ms) {
+  const d = new Date(ms);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+}
 function fmtDate(ms) {
   return new Date(ms).toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric", weekday: "short" });
 }
@@ -1968,11 +1975,12 @@ $("sortSessions").onclick = () => {
 updateSortBtn();
 
 // セッション一覧の表示絞り込み: すべて・ピンのみ・未読のみ・
-// 今日のみ・昨日のみ・下書きのみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
+// 今日のみ・昨日のみ・今週のみ・下書きのみを順に切り替える。ピン留めした会話や未読の会話が増えてくると
 // 一覧が長くなるため、見たいものだけに絞って切り替えられる
 // ようにする。今日のみは当日中に更新された会話だけを出すので、
 // 今日の作業に関係する会話へすぐ戻れる。昨日のみは前日に更新
-// された会話だけを出すので、昨日の続きへすぐ戻れる。下書きのみは送信していない
+// された会話だけを出すので、昨日の続きへすぐ戻れる。今週のみは月曜日から今日までに更新
+// された会話だけを出すので、今週の作業に関係する会話へすぐ戻れる。下書きのみは送信していない
 // 下書きのある会話だけを出すので、書きかけの文が残っている会話へ
 // すぐ戻れる。並び替えと同じく
 // localStorage に保存し、次回も使う。
@@ -1984,18 +1992,20 @@ let listFilter = storedFilter === "pinned" || storedFilter === "on" ? "pinned"
   : storedFilter === "unread" ? "unread"
   : storedFilter === "today" ? "today"
   : storedFilter === "yesterday" ? "yesterday"
+  : storedFilter === "week" ? "week"
   : storedFilter === "draft" ? "draft" : "all";
 function updatePinOnlyBtn() {
   $("pinOnlyToggle").textContent = listFilter === "pinned" ? "表示: ピンのみ"
     : listFilter === "unread" ? "表示: 未読のみ"
     : listFilter === "today" ? "表示: 今日のみ"
     : listFilter === "yesterday" ? "表示: 昨日のみ"
+    : listFilter === "week" ? "表示: 今週のみ"
     : listFilter === "draft" ? "表示: 下書きのみ" : "表示: すべて";
 }
 $("pinOnlyToggle").onclick = () => {
   listFilter = listFilter === "all" ? "pinned" : listFilter === "pinned" ? "unread"
     : listFilter === "unread" ? "today" : listFilter === "today" ? "yesterday"
-    : listFilter === "yesterday" ? "draft" : "all";
+    : listFilter === "yesterday" ? "week" : listFilter === "week" ? "draft" : "all";
   try { localStorage.setItem(LIST_FILTER_KEY, listFilter); } catch (e) {}
   updatePinOnlyBtn();
   renderListOptions();
@@ -2141,7 +2151,8 @@ $("nextSession").onclick = () => stepSession(1);
 // the ones updated today (today-only, judged by the local
 // calendar date of the session's updated time, falling back to
 // its created time), the ones updated yesterday (yesterday-only,
-// same date rule), or the ones with an unsent draft
+// same date rule), the ones updated this week (week-only, Monday
+// to today by local date), or the ones with an unsent draft
 // (draft-only, see hasDraft). The selected session is always shown, so
 // filtering never loses the current selection or a just-created
 // session passed as selectedId. Pinned sessions come first (in the
@@ -2169,6 +2180,15 @@ function renderListOptions(selectedId) {
   const yDay = new Date();
   yDay.setDate(yDay.getDate() - 1);
   const yesterdayKey = dayKey(yDay.getTime());
+  // 今週の始まり: 月曜日を週の始まりとし、現地の日付で比べる。
+  // getDay() は日曜日が 0 なので、月曜日からの日数を
+  // (getDay() + 6) % 7 で求める。setDate で日を戻すので、
+  // 昨日のみと同じく夏時間のある地域でも確実。
+  const weekStart = new Date();
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - ((weekStart.getDay() + 6) % 7));
+  const weekStartMs = weekStart.getTime();
+  const todayStartMs = dayStartMs(Date.now());
   let shown = 0;
   for (const s of sorted) {
     if (q && s.id !== want &&
@@ -2188,6 +2208,16 @@ function renderListOptions(selectedId) {
     // ある地域でも確実。時刻のないセッションは出ない。
     if (listFilter === "yesterday" && s.id !== want &&
         dayKey(s.time?.updated || s.time?.created || 0) !== yesterdayKey) continue;
+    // 今週のみ: 更新日時（なければ作成日時）が月曜日から今日
+    // までの会話だけを出す。今日のみ・昨日のみと同じく、更新
+    // 日時がなければ作成日時を使い、時刻のないセッションは
+    // 出ない。日付の始まり同士で範囲を比べるので、今日のうちに
+    // 少し未来の時刻が付いた会話も今週に入る。
+    if (listFilter === "week" && s.id !== want) {
+      const t = s.time?.updated || s.time?.created || 0;
+      const d = t ? dayStartMs(t) : 0;
+      if (!d || d < weekStartMs || d > todayStartMs) continue;
+    }
     // 下書きのみ: 送信していない下書きのある会話だけを出す。
     // 書きかけの文がどの会話に残っているか、一覧で探さずに
     // 確認できる。開いている会話は絞り込み中も残る。
