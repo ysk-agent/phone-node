@@ -2418,13 +2418,24 @@ function loadDraftFor(id) {
 // トークン数は目安で、実際の数え方はモデルごとに違う: 英数字や空白は
 // およそ4文字で1トークン、日本語などの文字は1文字でおよそ1トークン
 // として見積もる。送ったあとの正確な使用量は応答の使用量の行に出る。
+// 範囲を選択しているときは、その部分だけの文字数も後ろに出す。
+// 長いプロンプトの一部を切り取って別の場所へ貼るときや、引用する
+// 範囲の長さを確かめるときに、全体の文字数だけでは分からないため。
 function updateCharCount() {
-  const text = $("input").value;
+  const inputEl = $("input");
+  const text = inputEl.value;
   const n = [...text].length;
   if (!n) { $("charCount").textContent = ""; return; }
   let tokens = 0;
   for (const ch of text) tokens += ch.codePointAt(0) <= 0x7f ? 0.25 : 1;
-  $("charCount").textContent = n + "文字 · 約" + Math.max(1, Math.round(tokens)) + "トークン";
+  let label = n + "文字 · 約" + Math.max(1, Math.round(tokens)) + "トークン";
+  // 選択範囲の文字数: カーソルだけ（選択なし）のときは出さない。
+  // slice の添字は UTF-16 単位だが、[...部分] で数え直すので
+  // 絵文字も1文字になる。全体の文字数と同じ数え方。
+  const start = inputEl.selectionStart ?? 0;
+  const end = inputEl.selectionEnd ?? 0;
+  if (end > start) label += " · 選択 " + [...text.slice(start, end)].length + "文字";
+  $("charCount").textContent = label;
 }
 function autoResize() {
   const inputEl = $("input");
@@ -2437,6 +2448,10 @@ $("input").addEventListener("input", () => {
   updateCharCount();
   saveDraft();
 });
+// 範囲選択の変化: input イベントは選択だけの変化では起きないため、
+// select イベントでも文字数を描き直す。マウスでのドラッグ選択と
+// Shift+矢印キーでの選択変更のどちらでも select が起きる。
+$("input").addEventListener("select", updateCharCount);
 const savedDraft = localStorage.getItem(DRAFT_KEY);
 if (savedDraft) { $("input").value = savedDraft; autoResize(); updateCharCount(); }
 // 音声入力: ブラウザの音声認識で話した文を入力欄へ入れる。Web Speech
