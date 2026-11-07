@@ -1371,6 +1371,7 @@ function addCodeFoldButtons(div) {
     pre.before(btn);
     pre.classList.add("codefolded");
     pre._foldBtn = btn;
+    pre._foldLines = lines;
   }
 }
 // 長いメッセージの折りたたみ: 2000文字を超えるメッセージは最初は
@@ -3284,10 +3285,12 @@ function applyChatSearch() {
   chatMatches = [];
   chatMatchIndex = -1;
   let found = 0;
+  let foldsChanged = false;
   // 正規表現モードでは入力を RegExp として解釈し、大文字小文字の
   // 区別はフラグで決める（区別するなら g、しないなら gi）。無効な
   // 正規表現のときは検索をかけず、表示をすべて元に戻して件数表示に
-  // その旨を出し、「次へ／前へ」も無効にする。
+  // その旨を出し、「次へ／前へ」も無効にする。検索が開いた折りた
+  // たみはこの場合も元に戻す。
   let re = null;
   if (searchRegex && raw) {
     try { re = new RegExp(raw, searchCaseSensitive ? "g" : "gi"); }
@@ -3295,7 +3298,9 @@ function applyChatSearch() {
       for (const el of chat.querySelectorAll(".msg, .tool")) {
         el.classList.remove("dimmed", "match", "current");
         clearSearchHighlights(el._body ? el._body : (el._tooltext ? el._tooltext : el));
+        if (restoreSearchFold(el)) foldsChanged = true;
       }
+      if (foldsChanged) updateFoldAllBtn();
       $("chatSearchCount").textContent = "正規表現が無効です";
       $("chatSearchPrev").disabled = true;
       $("chatSearchNext").disabled = true;
@@ -3306,7 +3311,7 @@ function applyChatSearch() {
     el.classList.remove("dimmed", "match", "current");
     const container = el._body ? el._body : (el._tooltext ? el._tooltext : el);
     clearSearchHighlights(container);
-    if (!q) continue;
+    if (!q) { if (restoreSearchFold(el)) foldsChanged = true; continue; }
     const text = el._body ? el._body.textContent : (el._tooltext ? el._tooltext.textContent : el.textContent);
     let matched;
     if (re) { re.lastIndex = 0; matched = re.test(text); }
@@ -3317,14 +3322,56 @@ function applyChatSearch() {
     if (matched) {
       el.classList.add("match");
       highlightSearchText(container, q, searchCaseSensitive, re);
+      if (unfoldForSearch(el)) foldsChanged = true;
       chatMatches.push(el);
       found++;
     }
-    else el.classList.add("dimmed");
+    else {
+      el.classList.add("dimmed");
+      if (restoreSearchFold(el)) foldsChanged = true;
+    }
   }
+  if (foldsChanged) updateFoldAllBtn();
   $("chatSearchCount").textContent = q ? found + "件" : "";
   $("chatSearchPrev").disabled = !chatMatches.length;
   $("chatSearchNext").disabled = !chatMatches.length;
+}
+// 会話内検索で一致したメッセージの折りたたみを一時的に開く: 長い
+// メッセージは先頭だけが見えているため、折りたたまれたままでは一致
+// 箇所が隠れて「N件」と出てもハイライトが見えない。検索で一致した
+// メッセージは折りたたみと中の長いコードブロックを開き、検索語を変
+// えて一致しなくなったときや検索欄を空にしたときに元の折りたたみ
+// 状態へ戻す。戻すのは検索が開いたものだけで、利用者が自分で開いた
+// ものには触れない（開いた記録 _searchUnfolded を持つものだけを戻
+// す）。応答の逐次表示中は折りたたまない決まりのため対象外。
+function unfoldForSearch(el) {
+  if (!el.classList.contains("msg") || el._streaming) return false;
+  let changed = false;
+  if (el._folded) { setFolded(el, false); el._searchUnfolded = true; changed = true; }
+  if (el._body) for (const pre of el._body.querySelectorAll("pre.codefolded")) {
+    if (!pre._foldBtn) continue;
+    pre.classList.remove("codefolded");
+    pre._foldBtn.textContent = "コードを折りたたむ";
+    pre._searchUnfolded = true;
+    changed = true;
+  }
+  return changed;
+}
+function restoreSearchFold(el) {
+  let changed = false;
+  if (el._searchUnfolded) {
+    setFolded(el, true);
+    delete el._searchUnfolded;
+    changed = true;
+  }
+  if (el._body) for (const pre of el._body.querySelectorAll("pre")) {
+    if (!pre._searchUnfolded || !pre._foldBtn) continue;
+    pre.classList.add("codefolded");
+    pre._foldBtn.textContent = "コードを展開（全" + pre._foldLines + "行）";
+    delete pre._searchUnfolded;
+    changed = true;
+  }
+  return changed;
 }
 function jumpChatMatch(dir) {
   if (!chatMatches.length) return;
