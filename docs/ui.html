@@ -331,6 +331,7 @@
     <tr><td><kbd>Ctrl</kbd> + <kbd>Enter</kbd></td><td>プロンプトを送信する（送信キーが Ctrl+Enter のとき）</td></tr>
     <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>入力欄で改行する（送信キーが Enter のとき）</td></tr>
     <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>入力欄で送信したプロンプトの履歴をたどる（＋メニューの「送信履歴」から一覧で選ぶこともできます）</td></tr>
+    <tr><td><kbd>Alt</kbd> + <kbd>↑</kbd> / <kbd>↓</kbd></td><td>前の会話へ / 次の会話へ移動する（ドロワーの「前の会話へ」「次の会話へ」と同じ）</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>会話内検索へ移動する</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>現在の会話を Markdown として書き出す（ドロワーの「書き出し」と同じ）</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>会話内検索で次の一致へ移動する（<kbd>Shift</kbd> + <kbd>Enter</kbd> は前の一致へ）</td></tr>
@@ -2656,6 +2657,9 @@ function showHistory(i) {
   $("input").setSelectionRange($("input").value.length, $("input").value.length);
 }
 $("input").addEventListener("keydown", e => {
+  // Alt+↑/↓ は会話の移動（全体のキー処理）に使うので、履歴
+  // たどりでは拾わない。素の ↑/↓ だけが履歴の対象。
+  if (e.altKey) return;
   if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
   if (!history.length) return;
   const inputEl = $("input");
@@ -3380,6 +3384,19 @@ document.addEventListener("keydown", e => {
   if (e.key === "/" && !typing) {
     e.preventDefault();
     $("input").focus();
+    return;
+  }
+  // Alt+↑/↓ で前の会話へ / 次の会話へ。素の ↑/↓ は入力欄の
+  // 履歴たどりやカーソル移動に使うので、Alt 付きだけを会話の
+  // 移動に割り当てる。セレクトボックスでは Alt+↓ が一覧を開く
+  // 標準の操作なので、そこでは拾わない。ショートカット一覧が
+  // 開いている間も効かない。stepSession がドロワーを閉じて
+  // 会話を選ぶので、ボタンと同じ動きになる。
+  if (e.altKey && !e.ctrlKey && !e.metaKey &&
+      (e.key === "ArrowUp" || e.key === "ArrowDown") && !shortcutDialog.open &&
+      !(t && t.tagName === "SELECT")) {
+    e.preventDefault();
+    stepSession(e.key === "ArrowUp" ? -1 : 1);
     return;
   }
   if ((e.key === "n" || e.key === "N") && !typing && !e.ctrlKey && !e.metaKey && !e.altKey
