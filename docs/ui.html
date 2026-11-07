@@ -791,6 +791,7 @@ function applySessionModel(id) {
   modelEl.value = m;
   try { localStorage.setItem("oc-model", m); } catch (e) {}
   updateFavModelBtn();
+  applyEnterMode();
 }
 // サーバごとの最後のセッション: ノードを切り替えると会話も
 // 変わるため、サーバごとに最後に開いたセッションを localStorage
@@ -1719,6 +1720,7 @@ async function refreshModels() {
     if (saved) modelEl.value = saved;
     takeModelSnapshot();
     applyModelFilter();
+    applyEnterMode();
     return false;
   }
   modelEl.innerHTML = "";
@@ -1782,6 +1784,7 @@ async function refreshModels() {
   localStorage.setItem("oc-model", modelEl.value);
   takeModelSnapshot();
   applyModelFilter();
+  applyEnterMode();
   return true;
 }
 
@@ -2514,11 +2517,25 @@ $("abort").onclick = abortReply;
 // 送信キーが Ctrl+Enter のときは Enter は改行のままになる。
 const ENTER_KEY = "oc-enter-mode";
 let enterMode = localStorage.getItem(ENTER_KEY) === "ctrl" ? "ctrl" : "enter";
+// 入力欄のプレースホルダに選んでいるモデル名を出す: モデル欄は
+// 入力カードの下の行にあるため、入力欄だけを見ていると今どの
+// モデルで送るのか分からない。プレースホルダに名前を入れておけば
+// 送信前に確認できる。名前が長いときは先頭だけにし、モデルが
+// 未選択のときは従来の文言のままにする。モデルを選び直したときや
+// 一覧を取り直したとき、会話ごとのモデルを復元したときにも付け直す。
+function modelPlaceholderName() {
+  const sel = $("model").selectedOptions;
+  const opt = sel && sel[0];
+  const name = opt ? opt.textContent.trim() : "";
+  return name.length > 40 ? name.slice(0, 40) + "…" : name;
+}
 function applyEnterMode() {
   $("enterModeToggle").textContent = enterMode === "ctrl" ? "送信キー: Ctrl+Enter" : "送信キー: Enter";
+  const modelName = modelPlaceholderName();
+  const modelPart = modelName ? "モデル: " + modelName + "、" : "";
   $("input").placeholder = enterMode === "ctrl"
-    ? "プロンプトを入力（Ctrl+Enter で送信、Enter で改行）"
-    : "プロンプトを入力（Enter で送信、Shift+Enter で改行）";
+    ? "プロンプトを入力（" + modelPart + "Ctrl+Enter で送信、Enter で改行）"
+    : "プロンプトを入力（" + modelPart + "Enter で送信、Shift+Enter で改行）";
 }
 applyEnterMode();
 $("enterModeToggle").onclick = () => {
@@ -3470,6 +3487,7 @@ $("model").onchange = () => {
   localStorage.setItem("oc-model", $("model").value);
   if (currentId) { modelBySession[currentId] = $("model").value; saveModelBySession(); }
   updateFavModelBtn();
+  applyEnterMode();
 };
 // モデル一覧の手動更新: サーバ側でモデルが増えたとき、ページを
 // 読み直さなくても一覧を取り直せる。セッション一覧の「一覧更新」
