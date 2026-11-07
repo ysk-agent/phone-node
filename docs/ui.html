@@ -3395,6 +3395,20 @@ $("rename").onclick = async () => {
     await refreshList(currentId);
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
+// 削除した会話の次に並ぶ会話の id: 一覧の option の並び
+// （並び替え・絞り込み済み）から、削除前の位置にあった
+// option を探す。削除した会話が末尾だったときは新しい末尾、
+// 一覧に残る会話がなければ空文字を返す。先頭の option は
+// 「（セッション一覧）」の placeholder なので対象外。削除した
+// 会話が絞り込みで一覧に出ていないとき（idx が -1）は先頭の
+// 会話を開く。
+function nextSessionIdAfter(idx) {
+  const opts = listEl.options;
+  if (opts.length <= 1) return "";
+  let i = idx < 0 ? 1 : Math.min(idx, opts.length - 1);
+  if (i < 1) i = 1;
+  return opts[i].value || "";
+}
 // Delete the current session after a confirmation dialog. The
 // server removes the session and all its history, so the local
 // state (current id, saved last session, chat view, title bar) is
@@ -3403,6 +3417,10 @@ $("deleteSession").onclick = async () => {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
   const title = $("curTitle").textContent;
   if (!confirm("セッション「" + title + "」を削除しますか？\n会話の履歴もすべて消えます。")) return;
+  // 削除後に開く次の会話の位置: 一覧の option の並び（並び替え・
+  // 絞り込み済み）での削除前の位置を覚えておく。削除で1つ詰まる
+  // ので、同じ位置が次の会話になる。
+  const deletedIdx = [...listEl.options].findIndex(o => o.value === currentId);
   try {
     await api("/session/" + encodeURIComponent(currentId), { method: "DELETE" });
     pinnedIds = pinnedIds.filter(id => id !== currentId);
@@ -3431,9 +3449,21 @@ $("deleteSession").onclick = async () => {
     $("curTimes").textContent = "";
     updateShareUrl();
     await refreshList();
-    addMsg("sys", "セッションを削除しました");
-    applyChatSearch();
-    updateFoldAllBtn();
+    // 削除した会話の次に並んでいた会話を自動で開く: 削除だけで
+    // 空の画面が残ると、次に読む会話を一覧から選び直す手間が
+    // 増えるため。残る会話がなければ従来どおり空の画面のまま。
+    // 開いた会話はそのまま読む状態になるので、削除の知らせは
+    // 会話の中ではなく状態欄に出す（会話の中に入れると、開いた
+    // 会話の履歴に混ざってしまう）。
+    const nextId = nextSessionIdAfter(deletedIdx);
+    if (nextId) {
+      await selectSession(nextId, true);
+      setStatus("セッションを削除しました。次の会話「" + $("curTitle").textContent + "」を開きました");
+    } else {
+      addMsg("sys", "セッションを削除しました");
+      applyChatSearch();
+      updateFoldAllBtn();
+    }
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
 // Fork the current session: the server copies the conversation up
