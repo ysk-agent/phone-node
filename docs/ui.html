@@ -175,7 +175,7 @@
   #server, #serverHistory { width: 100%; box-sizing: border-box; }
   #curId { color: #888; font-size: 11px; word-break: break-all; }
   #curCount { color: #888; font-size: 11px; white-space: nowrap; }
-  #curTimes { color: #888; font-size: 11px; white-space: nowrap; }
+  #curTimes, #curModel { color: #888; font-size: 11px; white-space: nowrap; }
   #drawer .actbtn { width: 100%; box-sizing: border-box; text-align: left;
                     background: #222; border: 1px solid #3a3a3a; color: #eee; }
   #deleteSession { background: #5a2323; border-color: #7a3030; }
@@ -187,7 +187,7 @@
   body.light #drawerBtn { color: #222; border-color: #bbb; }
   body.light #searchBar { background: #ececec; border-color: #ddd; }
   body.light #chatSearchCount, body.light #sessionCount,
-  body.light #curId, body.light #curCount, body.light #curTimes { color: #666; }
+  body.light #curId, body.light #curCount, body.light #curTimes, body.light #curModel { color: #666; }
   body.light input, body.light select { background: #fff; color: #222; border-color: #bbb; }
   body.light #statusBar { background: #ececec; border-color: #ddd; }
   body.light #status { color: #2a7a2a; }
@@ -299,6 +299,7 @@
     <div class="drawerRow"><button id="sortSessions">並び替え: 更新順</button><button id="pinOnlyToggle">表示: すべて</button><button id="refreshList">一覧更新</button></div>
     <div class="drawerRow"><span id="curId"></span><button id="copySessionId" class="copybtn" disabled>IDをコピー</button><span id="curCount"></span></div>
     <div class="drawerRow"><span id="curTimes"></span></div>
+    <div class="drawerRow"><span id="curModel"></span></div>
     <button id="markAllSeen" class="actbtn">すべて既読にする</button>
     <button id="markUnread" class="actbtn">未読に戻す</button>
     <button id="nextUnread" class="actbtn" title="次の未読へ（Uキーでも移動できます）">次の未読へ</button>
@@ -2388,6 +2389,18 @@ function setCurTimes(id) {
   $("curTimes").textContent = parts.join(" · ");
 }
 
+// 現在の会話の使用モデルをドロワーに表示する。最後のアシスタント
+// メッセージの info（modelID/providerID）から読むだけなので、
+// サーバへの追加の問い合わせは不要。会話の末尾にある使用量の
+// 行と同じ表記にし、モデルが分からない会話では何も出さない。
+// 履歴の読み込みと応答の完了で付け直すので、他のブラウザで送った
+// 返信や作り直した返信のモデルにも追従する。会話を切り替える
+// ときは先に空にし、読み込んだ履歴が決める。
+function setCurModel(info) {
+  $("curModel").textContent = (info && typeof info.modelID === "string" && info.modelID)
+    ? "使用モデル " + (info.providerID ? info.providerID + "/" : "") + info.modelID : "";
+}
+
 // 巻き戻し中の表示: 取得した履歴から巻き戻し点以降を除く。
 // 巻き戻し点が履歴になければ確定済み（次の送信で消えた）
 // なので段階表示をやめ、取り消しボタンも消す。巻き戻し点は
@@ -2419,6 +2432,7 @@ async function loadMessages(id) {
   const lastAssistant = [...shown].reverse()
     .find(m => m.info && m.info.role === "assistant");
   addUsage(lastAssistant && lastAssistant.info);
+  setCurModel(lastAssistant && lastAssistant.info);
   showSessionTotals(shown);
   setMsgCount(shown.length);
   lastKnownMsgCount = shown.length;
@@ -2456,6 +2470,7 @@ async function selectSession(id, load) {
   $("curTitle").textContent = opt ? opt.textContent.split(" · ")[0].replace(/^(?:📌 |● |✎ )+/g, "") : "(無題)";
   $("curId").textContent = id;
   setCurTimes(id);
+  setCurModel(null);
   refreshTabTitle();
   updateShareUrl();
   if (load) await loadMessages(id);
@@ -2494,6 +2509,7 @@ async function syncReply(id, text, wait) {
   wait.remove();
   const shown = renderMessage(reply);
   addUsage(reply.info, replySeconds());
+  setCurModel(reply.info);
   if (aborted) addMsg("sys", "中断しました");
   else if (!shown) addMsg("assistant", "(テキスト応答なし)");
 }
@@ -2538,6 +2554,7 @@ async function streamReply(id, text, wait) {
     }
     syncPartLines(last);
     addUsage(last && last.info, replySeconds(), firstTokenSeconds());
+    setCurModel(last && last.info);
   } catch (e) { /* keep whatever streamed in; the list refresh follows */ }
   if (streamWait) { streamWait.remove(); streamWait = null; }
   if (aborted) addMsg("sys", "中断しました");
@@ -3477,6 +3494,7 @@ $("deleteSession").onclick = async () => {
     $("curTitle").textContent = "（セッション未選択）";
     $("curId").textContent = "";
     $("curTimes").textContent = "";
+    setCurModel(null);
     updateShareUrl();
     await refreshList();
     // 削除した会話の次に並んでいた会話を自動で開く: 削除だけで
@@ -3785,6 +3803,7 @@ async function switchServerSession() {
       $("curTitle").textContent = "（セッション未選択）";
       $("curId").textContent = "";
       $("curTimes").textContent = "";
+      setCurModel(null);
       updatePinBtn();
       updateShareUrl();
       refreshTabTitle();
