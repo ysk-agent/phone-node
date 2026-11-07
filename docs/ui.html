@@ -328,6 +328,7 @@
     <button id="soundToggle" class="actbtn">通知音: オン</button>
     <button id="vibrateToggle" class="actbtn">バイブレーション: オン</button>
     <button id="autoSpeakToggle" class="actbtn">自動読み上げ: オフ</button>
+    <button id="notifyToggle" class="actbtn">完了通知: オフ</button>
     <button id="autoScrollToggle" class="actbtn">自動スクロール: オン</button>
     <button id="autoFoldToggle" class="actbtn">自動折りたたみ: オン</button>
     <button id="shortcutBtn" class="actbtn">ショートカット</button>
@@ -575,6 +576,52 @@ if ("speechSynthesis" in window) {
   };
 } else {
   $("autoSpeakToggle").style.display = "none";
+}
+// 応答が終わったらブラウザ通知を出す: 音・振動・自動読み上げと
+// 同じくタブが隠れているときだけで、画面を見ているときは通知
+// しない（画面で分かるため）。他の作業をしながら待っている間に、
+// 通知の一覧から返信の出だしが読める。既定はオフで、設定欄の
+// ボタンで切り替える。オンにするときにブラウザへ許可を求め、
+// 許可が得られなければオフのままにする。許可はブラウザの設定で
+// 取り消すこともできるが、その場合は通知が出なくなるだけで選択
+// 自体は残る。通知に対応していないブラウザではボタンを出さない。
+const NOTIFY_KEY = "oc-notify";
+let notifyOn = localStorage.getItem(NOTIFY_KEY) === "on";
+let lastNotify = null;
+function updateNotifyBtn() {
+  $("notifyToggle").textContent = "完了通知: " + (notifyOn ? "オン" : "オフ");
+}
+function notifyReplyDone() {
+  if (!notifyOn || !document.hidden || !("Notification" in window)) return;
+  if (Notification.permission !== "granted") return;
+  const bubbles = chat.querySelectorAll(".msg.assistant");
+  const div = bubbles[bubbles.length - 1];
+  if (!div) return;
+  const text = (div._rawText ?? div._body.textContent ?? "").trim().replace(/\s+/g, " ");
+  if (!text || text === "(テキスト応答なし)") return;
+  try {
+    if (lastNotify) lastNotify.close();
+    const title = ($("curTitle").textContent || "").trim() || "opencode";
+    lastNotify = new Notification(title, { body: text.length > 120 ? text.slice(0, 120) + "…" : text });
+  } catch (e) { /* 通知が出なくても応答表示には影響しない */ }
+}
+if ("Notification" in window) {
+  updateNotifyBtn();
+  $("notifyToggle").onclick = async () => {
+    if (!notifyOn && Notification.permission !== "granted") {
+      let perm = Notification.permission;
+      try { perm = await Notification.requestPermission(); } catch (e) { perm = "denied"; }
+      if (perm !== "granted") {
+        setStatus("通知の許可が得られませんでした", true);
+        return;
+      }
+    }
+    notifyOn = !notifyOn;
+    try { localStorage.setItem(NOTIFY_KEY, notifyOn ? "on" : "off"); } catch (e) {}
+    updateNotifyBtn();
+  };
+} else {
+  $("notifyToggle").style.display = "none";
 }
 // 新しいメッセージや逐次表示の更新が来たときに最下部へ追従する
 // かどうかを切り替える。長い会話をさかのぼって読むときは、追従を
@@ -2313,6 +2360,7 @@ async function send(resendText, record = true) {
     playNotify("done");
     vibrateNotify("done");
     autoSpeakReply();
+    notifyReplyDone();
   } catch (e) {
     wait.remove();
     if (aborted) {
