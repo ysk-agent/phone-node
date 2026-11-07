@@ -372,8 +372,9 @@
 //   POST  /session                 -> create a session
 //   PATCH /session/{id}            -> rename a session
 //   DELETE /session/{id}           -> delete a session (with confirmation)
-//   POST  /session/{id}/fork       -> fork a session at its latest message
-//                                    (returns the new Session)
+//   POST  /session/{id}/fork       -> fork a session at a message
+//                                    (body {messageID?}; without it, the
+//                                    latest message; returns the new Session)
 //   POST  /session/{id}/revert     -> stage a rollback to a message
 //   POST  /session/{id}/unrevert   -> cancel a staged rollback
 //   GET   /config/providers    -> providers with their models (+ defaults)
@@ -1272,6 +1273,9 @@ function addMsg(cls, text, ms, msgId) {
     // 巻き戻しボタン（ユーザーメッセージのみ）。押すとこの
     // メッセージ以降を巻き戻す。応答の途中では使えない。
     if (cls === "user" && msgId) attachRevertBtn(div, msgId);
+    // 分岐ボタン（メッセージごと）。押すとこのメッセージまでを
+    // 写した会話が新しくでき、別の方向を試せる。応答の途中では使えない。
+    if (msgId) attachForkBtn(div, msgId);
   }
   if (ms) setMsgTime(div, ms);
   chat.appendChild(div);
@@ -2601,6 +2605,7 @@ async function send(resendText, record = true) {
   $("abort").disabled = false;
   $("deleteSession").disabled = true;
   $("forkSession").disabled = true;
+  updateForkMsgBtns(true);
   aborted = false;
   stopSpeaking();
   ensureAudio();
@@ -2667,6 +2672,7 @@ async function send(resendText, record = true) {
     $("abort").disabled = true;
     $("deleteSession").disabled = false;
     $("forkSession").disabled = false;
+    updateForkMsgBtns(false);
     applyChatSearch();
     updateFoldAllBtn();
   }
@@ -3588,19 +3594,26 @@ $("deleteSession").onclick = async () => {
   } catch (e) { setStatus("エラー: " + e.message, true); }
 };
 // Fork the current session: the server copies the conversation up
-// to its latest message into a new session, so a different direction
-// can be tried without losing the original. The fork is renamed with
-// a "（分岐）" suffix so the two do not look identical in the list,
-// inherits the original's model choice, and is opened right away;
-// the original keeps its pin (the fork starts unpinned).
-$("forkSession").onclick = async () => {
+// to the given message (or its latest message, when no message is
+// given) into a new session, so a different direction can be tried
+// without losing the original. Forking at a user message copies the
+// conversation up to that question, so the same question can be
+// answered another way; forking at a reply keeps that reply as the
+// starting point. The fork is renamed with a "（分岐）" suffix so
+// the two do not look identical in the list, inherits the original's
+// model choice, and is opened right away; the original keeps its pin
+// (the fork starts unpinned). While a reply is awaited the server
+// cannot fork cleanly, so that case is refused in the status line,
+// like reverting.
+async function forkCurrentSession(messageID) {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
+  if (pendingId) { setStatus("応答中は分岐できません", true); return; }
   const title = $("curTitle").textContent;
   try {
     const forked = await api("/session/" + encodeURIComponent(currentId) + "/fork", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: "{}",
+      body: JSON.stringify(messageID ? { messageID } : {}),
     });
     const newId = forked && forked.id;
     if (!newId) throw new Error("分岐先のセッションIDが返されませんでした");
@@ -3622,7 +3635,11 @@ $("forkSession").onclick = async () => {
     applyChatSearch();
     updateFoldAllBtn();
   } catch (e) { setStatus("エラー: " + e.message, true); }
-};
+}
+// ドロワーの「分岐する」は今の会話の最新メッセージまでを写す
+// （メッセージを指定しない分岐）。メッセージごとの「ここから分岐」
+// も同じ forkCurrentSession を呼ぶ。
+$("forkSession").onclick = () => forkCurrentSession();
 // メッセージまで巻き戻す: ユーザーメッセージのフッターにある
 // 「ここまで戻す」から呼ぶ。サーバへ POST /revert すると、その
 // メッセージとそれ以降の会話が巻き戻し対象になり、ファイルの変更
@@ -3638,6 +3655,26 @@ function attachRevertBtn(div, msgId) {
   btn.onclick = () => revertToMessage(msgId, div);
   div._foot.appendChild(btn);
   div._revertBtn = btn;
+}
+// メッセージから分岐する: そのメッセージのフッターにある
+// 「ここから分岐」から呼ぶ。ドロワーの「分岐する」と同じ処理で、
+// messageID を渡す分だけ違う。応答中は分岐できないので、送信中は
+// ボタンも無効にしておく（updateForkMsgBtns が付け直す）。
+function attachForkBtn(div, msgId) {
+  if (!div._foot || div._forkBtn) return;
+  const btn = document.createElement("button");
+  btn.className = "copybtn forkmsgbtn";
+  btn.textContent = "ここから分岐";
+  btn.disabled = !!pendingId;
+  btn.onclick = () => forkCurrentSession(msgId);
+  div._foot.appendChild(btn);
+  div._forkBtn = btn;
+}
+// 応答待ちの間はメッセージごとの分岐ボタンも無効にする。送信の
+// 始めと終わりで呼ぶ。引数がなければ今の応答待ちの状態に従う。
+function updateForkMsgBtns(disabled) {
+  const off = disabled === undefined ? !!pendingId : disabled;
+  chat.querySelectorAll(".forkmsgbtn").forEach(b => { b.disabled = off; });
 }
 async function revertToMessage(msgId, div) {
   if (!currentId) { setStatus("セッションが未選択です", true); return; }
