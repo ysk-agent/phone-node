@@ -325,6 +325,7 @@
     <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>入力欄で改行する（送信キーが Enter のとき）</td></tr>
     <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>入力欄で送信したプロンプトの履歴をたどる（＋メニューの「送信履歴」から一覧で選ぶこともできます）</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>会話内検索へ移動する</td></tr>
+    <tr><td><kbd>Ctrl</kbd> + <kbd>S</kbd></td><td>現在の会話を Markdown として書き出す（ドロワーの「書き出し」と同じ）</td></tr>
     <tr><td><kbd>Enter</kbd></td><td>会話内検索で次の一致へ移動する（<kbd>Shift</kbd> + <kbd>Enter</kbd> は前の一致へ）</td></tr>
     <tr><td><kbd>/</kbd></td><td>入力欄へ移動する</td></tr>
     <tr><td><kbd>N</kbd></td><td>新しいセッションを開始する（入力欄以外で押したとき）</td></tr>
@@ -3300,7 +3301,8 @@ updateFavModelBtn();
 // キーボードショートカットの一覧: ヘッダーのボタンか「?」キーで
 // 標準の <dialog> を開く。Esc や背景のクリックでも閉じる。
 // Ctrl+K は会話内検索へ移動する（ブラウザの検索欄を開く既定の
-// 動作は止める）。「/」は入力欄へ移動する。「?」は入力欄・選択欄に
+// 動作は止める）。Ctrl+S は現在の会話を Markdown として書き出す
+// （ブラウザの保存ダイアログを開く既定の動作は止める）。「/」は
 // いるときは文字入力に譲るので、そこでは開かない。「/」も同じく
 // 入力欄・選択欄では文字入力に譲る。「N」は新しいセッションを
 // 開始する（上部バーの「＋」と同じ処理で、ドロワーも閉じる）。
@@ -3316,6 +3318,11 @@ document.addEventListener("keydown", e => {
   if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
     e.preventDefault();
     $("chatSearch").focus();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "S") && !shortcutDialog.open) {
+    e.preventDefault();
+    exportConversation();
     return;
   }
   const t = e.target;
