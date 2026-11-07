@@ -323,6 +323,7 @@
     <tr><td><kbd>Shift</kbd> + <kbd>Enter</kbd></td><td>入力欄で改行する（送信キーが Enter のとき）</td></tr>
     <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>入力欄で送信したプロンプトの履歴をたどる（＋メニューの「送信履歴」から一覧で選ぶこともできます）</td></tr>
     <tr><td><kbd>Ctrl</kbd> + <kbd>K</kbd></td><td>会話内検索へ移動する</td></tr>
+    <tr><td><kbd>Enter</kbd></td><td>会話内検索で次の一致へ移動する（<kbd>Shift</kbd> + <kbd>Enter</kbd> は前の一致へ）</td></tr>
     <tr><td><kbd>/</kbd></td><td>入力欄へ移動する</td></tr>
     <tr><td><kbd>N</kbd></td><td>新しいセッションを開始する（入力欄以外で押したとき）</td></tr>
     <tr><td><kbd>?</kbd></td><td>この一覧を開く（入力欄以外で押したとき）</td></tr>
@@ -2780,6 +2781,15 @@ function jumpChatMatch(dir) {
 $("chatSearchPrev").onclick = () => jumpChatMatch(-1);
 $("chatSearchNext").onclick = () => jumpChatMatch(1);
 $("chatSearch").addEventListener("input", applyChatSearch);
+// 会話内検索で Enter を押すと次の一致へ移動する（Shift+Enter は
+// 前の一致へ）。検索欄にいるときだけの操作で、一致がなければ
+// 何もしない。ボタンと同じ jumpChatMatch を使うので、件数表示の
+// 更新やスクロールも同じになる。
+$("chatSearch").addEventListener("keydown", e => {
+  if (e.key !== "Enter") return;
+  e.preventDefault();
+  jumpChatMatch(e.shiftKey ? -1 : 1);
+});
 // 長いメッセージをすべて展開／折りたたむ: 長い会話では折りたたみ
 // 対象のメッセージが何件も出るため、1件ずつ開く代わりにまとめて
 // 切り替えられるようにする。折りたたまれているものが1件でも
