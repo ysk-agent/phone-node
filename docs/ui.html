@@ -2204,7 +2204,29 @@ function renderListOptions(selectedId) {
   lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
   const lastWeekEndMs = dayStartMs(lastWeekEnd.getTime());
   const todayStartMs = dayStartMs(Date.now());
+  // セッション一覧の日付グループ: 更新順・作成順のときだけ、一覧を
+  // optgroup で日付ごとに区切る（📌 ピン留め、今日、昨日、今週、
+  // 先週、それ以前、日時なし）。タイトル順・未読順では日付で区切る
+  // と並び順が崩れるので、従来どおり平らに並べる。ピン留めは日付に
+  // 関わらず先頭のグループにまとめ、並び替えの「ピン留め優先」と
+  // 同じ見え方にする。日付の判定は今日のみ・今週のみと同じ dayKey
+  // と日付の始まり同士の比べ方で、時刻のないセッションは「日時なし」
+  // に入る。絞り込みで残ったものだけが対象で、空のグループは作らない。
+  const GROUP_ORDER = ["📌 ピン留め", "今日", "昨日", "今週", "先週", "それ以前", "日時なし"];
+  function sessionDateGroup(s) {
+    if (isPinned(s.id)) return "📌 ピン留め";
+    const t = s.time?.updated || s.time?.created || 0;
+    if (!t) return "日時なし";
+    if (dayKey(t) === dayKey(Date.now())) return "今日";
+    if (dayKey(t) === yesterdayKey) return "昨日";
+    // 今週の始まり以降なら今週（今日・昨日は上で除いた）。今日の
+    // うちに少し未来の時刻が付いたものもここに入る。
+    if (dayStartMs(t) >= weekStartMs) return "今週";
+    if (dayStartMs(t) >= lastWeekStartMs && dayStartMs(t) <= lastWeekEndMs) return "先週";
+    return "それ以前";
+  }
   let shown = 0;
+  const shownItems = [];
   for (const s of sorted) {
     if (q && s.id !== want &&
         !(s.title || "").toLowerCase().includes(q) &&
@@ -2257,8 +2279,29 @@ function renderListOptions(selectedId) {
     // A manual unread mark (see markUnread) is the exception.
     const newMark = hasNewMessages(s) ? "● " : "";
     o.textContent = (isPinned(s.id) ? "📌 " : "") + newMark + draftMark + (s.title || "(無題)") + " · " + fmtTime(s.time?.updated || s.time?.created || 0);
-    listEl.appendChild(o);
+    shownItems.push({ o, s });
     shown++;
+  }
+  // 日付グループで並べるか、従来どおり平らに並べるか。グループ
+  // の中では並び替えの順序（更新順・作成順）のままにし、空の
+  // グループは出さない。
+  if (sessionSort === "updated" || sessionSort === "created") {
+    const buckets = new Map();
+    for (const item of shownItems) {
+      const g = sessionDateGroup(item.s);
+      if (!buckets.has(g)) buckets.set(g, []);
+      buckets.get(g).push(item.o);
+    }
+    for (const label of GROUP_ORDER) {
+      const opts = buckets.get(label);
+      if (!opts || !opts.length) continue;
+      const group = document.createElement("optgroup");
+      group.label = label;
+      for (const o of opts) group.appendChild(o);
+      listEl.appendChild(group);
+    }
+  } else {
+    for (const item of shownItems) listEl.appendChild(item.o);
   }
   const total = allSessions.length;
   $("sessionCount").textContent = total ? (shown < total ? shown + "件 / 全" + total + "件" : "全" + total + "件") : "";
