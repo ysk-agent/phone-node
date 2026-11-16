@@ -26,6 +26,7 @@ class ProxyServer {
         const val PORT = 8080
         private val ALLOWED_SOURCES = setOf(
             "100.95.80.115",  // Muse VM (muse)
+            "100.110.2.106",  // mio VM
             "100.100.242.8",  // Mac (m1)
             "100.102.129.64"  // Android (moto)
         )
