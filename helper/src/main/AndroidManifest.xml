@@ -9,6 +9,15 @@
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Android 11+ package visibility: required so the explicit
+         component start of the main app's NodeService resolves at
+         all. Without it the start silently returns null and the
+         resurrection never happens (found 2026-11-14: logcat showed
+         "Unable to start service ... not found" for every retry). -->
+    <queries>
+        <package android:name="dev.moriya.phonenode" />
+    </queries>
+
     <application
         android:label="Phone Node Helper"
         android:theme="@android:style/Theme.Material.Light">

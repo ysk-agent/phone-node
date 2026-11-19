@@ -75,10 +75,13 @@ class NodeService : Service() {
                 }
                 NodeState.heartbeat.incrementAndGet()
                 ticks++
-                // Debug-log export: once shortly after start, then
-                // every 5 minutes, to the user-picked folder (Drive).
-                if (ticks == 1L || ticks % 30L == 0L) {
+                // Development cadence (Moriya, 2026-11-06): while the
+                // bring-up loop is running, log export and the Drive
+                // update check both run every 3 ticks = 30 seconds.
+                // Relax both to minutes once the node is stable.
+                if (ticks == 1L || ticks % 3L == 0L) {
                     LogExport.export(this@NodeService)
+                    UpdateManager.checkAsync(this@NodeService)
                 }
                 // Mutual watchdog: every 10 minutes, make sure the
                 // helper's service is started. Starting an already
@@ -95,6 +98,10 @@ class NodeService : Service() {
     }
 
     override fun onDestroy() {
+        // Clear the liveness marker FIRST: the main screen's switch
+        // reads it to display the actual service state, and the
+        // teardown below (proot tree kill) can take a moment.
+        NodeState.serviceStartedAtMs = 0L
         heartbeatRunning = false
         statusServer?.stop()
         statusServer = null
@@ -117,10 +124,18 @@ class NodeService : Service() {
             )
         }
         try {
-            startForegroundService(intent)
+            // The return value matters: an unresolvable start (no
+            // <queries> visibility, Android 11+) returns null instead
+            // of throwing. Log both outcomes; a silent no-op here is
+            // what hid the broken resurrection edge until 2026-11-14.
+            val started = startForegroundService(intent)
+            if (started == null) {
+                android.util.Log.w("PhoneNode", "HelperService start returned null (not found)")
+            }
         } catch (e: Exception) {
             // Helper not installed or background start restricted; the
             // helper also resurrects itself via its boot receiver.
+            android.util.Log.w("PhoneNode", "HelperService start failed: $e")
         }
     }
 
@@ -150,6 +165,19 @@ class NodeService : Service() {
         fun start(context: Context) {
             val intent = Intent(context, NodeService::class.java)
             context.startForegroundService(intent)
+        }
+
+        /**
+         * Clean stop via the normal service lifecycle: onDestroy runs
+         * the full teardown (status server, proxy, proot tree, wake
+         * lock). Deliberately NOT a force-stop — the package never
+         * enters the stopped state, so external starters (helper,
+         * waker, the Moka VPN boot-management extension) can still
+         * revive the service afterwards. That difference is the whole
+         * reason the main screen's switch exists.
+         */
+        fun stop(context: Context) {
+            context.stopService(Intent(context, NodeService::class.java))
         }
     }
 }

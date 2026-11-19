@@ -8,6 +8,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
+import android.util.Log
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -77,11 +78,12 @@ class HelperService : Service() {
             failedPolls++
             stalePolls = 0
             if (failedPolls >= 2) {
-                resurrectMainApp()
-                prefs.edit()
-                    .putInt("resurrectCount", prefs.getInt("resurrectCount", 0) + 1)
-                    .putLong("lastResurrectAtMs", System.currentTimeMillis())
-                    .apply()
+                if (resurrectMainApp()) {
+                    prefs.edit()
+                        .putInt("resurrectCount", prefs.getInt("resurrectCount", 0) + 1)
+                        .putLong("lastResurrectAtMs", System.currentTimeMillis())
+                        .apply()
+                }
                 failedPolls = 0
             }
             prefs.edit().putString("mainState", "dead").apply()
@@ -112,12 +114,13 @@ class HelperService : Service() {
             heartbeat == lastHeartbeat -> {
                 stalePolls++
                 if (stalePolls >= 2) {
-                    resurrectMainApp()
-                    prefs.edit()
-                        .putString("mainState", "wedged")
-                        .putInt("resurrectCount", prefs.getInt("resurrectCount", 0) + 1)
-                        .putLong("lastResurrectAtMs", System.currentTimeMillis())
-                        .apply()
+                    if (resurrectMainApp()) {
+                        prefs.edit()
+                            .putString("mainState", "wedged")
+                            .putInt("resurrectCount", prefs.getInt("resurrectCount", 0) + 1)
+                            .putLong("lastResurrectAtMs", System.currentTimeMillis())
+                            .apply()
+                    }
                     stalePolls = 0
                 }
             }
@@ -158,15 +161,33 @@ class HelperService : Service() {
         return json.substring(from, end).trim().toLongOrNull()
     }
 
-    private fun resurrectMainApp() {
+    /**
+     * Returns true only when the start actually resolved.
+     * startForegroundService does NOT throw when the target cannot
+     * be resolved (e.g. package-visibility filtering without a
+     * <queries> declaration); it returns null and ActivityManager
+     * logs "Unable to start service ... not found". Until
+     * 2026-11-14 this return value was ignored, so every
+     * resurrection silently no-opped on Android 11+.
+     */
+    private fun resurrectMainApp(): Boolean {
         val intent = Intent().apply {
             component = ComponentName("dev.moriya.phonenode", "dev.moriya.phonenode.NodeService")
         }
-        try {
-            startForegroundService(intent)
+        return try {
+            val started = startForegroundService(intent)
+            if (started != null) {
+                Log.i("PhoneNodeHelper", "NodeService start requested: $started")
+                true
+            } else {
+                Log.w("PhoneNodeHelper", "NodeService start returned null (not found)")
+                false
+            }
         } catch (e: Exception) {
             // Background start restrictions vary by vendor; the next
             // poll retries, and the state stays visible in the UI.
+            Log.w("PhoneNodeHelper", "NodeService start failed: $e")
+            false
         }
     }
 

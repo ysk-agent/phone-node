@@ -10,6 +10,15 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
+    <!-- Android 11+ package visibility: required so the explicit
+         component start of the helper's HelperService resolves at
+         all. Without it the start silently returns null (found
+         2026-11-14 via the waker trial on the Libero). -->
+    <queries>
+        <package android:name="dev.moriya.phonenode.helper" />
+    </queries>
 
     <application
         android:label="Phone Node"
@@ -29,6 +38,22 @@
             android:name=".NodeService"
             android:exported="true"
             android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name=".PackageReplacedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".UpdateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.moriya.phonenode.INSTALL_STATUS" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".BootReceiver"
