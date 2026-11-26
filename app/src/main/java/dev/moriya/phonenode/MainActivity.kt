@@ -30,6 +30,8 @@ class MainActivity : Activity() {
     private lateinit var statusLabel: TextView
     private lateinit var installButton: Button
     private lateinit var nodeSwitch: Switch
+    private lateinit var opencodeV1Switch: Switch
+    private lateinit var opencodeV2Switch: Switch
 
     /** True while refreshStatus() is writing the switch position from
      * the actual service state; the checked-change listener must not
@@ -107,6 +109,38 @@ class MainActivity : Activity() {
             }
         }
         layout.addView(nodeSwitch)
+
+        // Separate start/stop switches for the two coexisting
+        // opencode serves (Moriya's decision, 2026-11-26): v1 on
+        // port 4096 and v2 on port 4098, each independently toggled
+        // and both may run at once. A switch writes the version's
+        // flag file in the guest overlay; the guest supervisor in
+        // run-node.sh reconciles the actual serve against it. The
+        // switch position shows the ENABLED state (the flag), and
+        // refreshStatus() re-syncs it like the node switch; whether
+        // the serve is actually answering is shown in the status
+        // text from NodeService's health probe.
+        opencodeV1Switch = Switch(this).apply {
+            text = "OpenCode v1 (4096)"
+            textSize = 18f
+            setOnCheckedChangeListener { _, isChecked ->
+                if (suppressSwitchSync) return@setOnCheckedChangeListener
+                ProotManager.setOpencodeEnabled(this@MainActivity, 1, isChecked)
+                refreshStatus()
+            }
+        }
+        layout.addView(opencodeV1Switch)
+
+        opencodeV2Switch = Switch(this).apply {
+            text = "OpenCode v2 (4098)"
+            textSize = 18f
+            setOnCheckedChangeListener { _, isChecked ->
+                if (suppressSwitchSync) return@setOnCheckedChangeListener
+                ProotManager.setOpencodeEnabled(this@MainActivity, 2, isChecked)
+                refreshStatus()
+            }
+        }
+        layout.addView(opencodeV2Switch)
 
         layout.addView(Button(this).apply {
             text = "電池最適化の除外を申請"
@@ -237,6 +271,21 @@ class MainActivity : Activity() {
             nodeSwitch.isChecked = running
             suppressSwitchSync = false
         }
+        // The opencode switches show each version's enabled state
+        // (its overlay flag file), which the guest supervisor or a
+        // future external writer could change behind this screen.
+        val v1Enabled = ProotManager.isOpencodeEnabled(this, 1)
+        val v2Enabled = ProotManager.isOpencodeEnabled(this, 2)
+        if (::opencodeV1Switch.isInitialized && opencodeV1Switch.isChecked != v1Enabled) {
+            suppressSwitchSync = true
+            opencodeV1Switch.isChecked = v1Enabled
+            suppressSwitchSync = false
+        }
+        if (::opencodeV2Switch.isInitialized && opencodeV2Switch.isChecked != v2Enabled) {
+            suppressSwitchSync = true
+            opencodeV2Switch.isChecked = v2Enabled
+            suppressSwitchSync = false
+        }
         statusLabel.text = buildString {
             append("電池最適化の除外: ").append(if (exempt) "済み" else "未設定").append("\n")
             append("サービス: ").append(if (!running) "未起動" else "起動中").append("\n")
@@ -244,6 +293,10 @@ class MainActivity : Activity() {
             append("proxy: ").append(if (NodeState.proxyListening) "待受中" else "停止")
                 .append("（ポート ").append(ProxyServer.PORT).append("）\n")
             append("proot: ").append(if (NodeState.prootRunning) "実行中" else "停止").append("\n")
+            append("OpenCode v1 (4096): ").append(if (v1Enabled) "有効" else "無効")
+                .append(" / ").append(if (NodeState.opencodeV1Running) "稼働中" else "停止").append("\n")
+            append("OpenCode v2 (4098): ").append(if (v2Enabled) "有効" else "無効")
+                .append(" / ").append(if (NodeState.opencodeV2Running) "稼働中" else "停止").append("\n")
             append("ログ保存先: ")
                 .append(if (LogExport.hasDestination(this@MainActivity)) "設定済み" else "未設定")
                 .append("\n")

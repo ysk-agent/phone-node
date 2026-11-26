@@ -8,3 +8,4 @@
 0da3a24d558b93c92bcf8d611e0826a99ff96e396b148e6cdf33b47c47c57ff6 libandroid-shmem_0.7_aarch64.deb https://packages.termux.dev/apt/termux-main/pool/main/liba/libandroid-shmem/libandroid-shmem_0.7_aarch64.deb
 2d66c782e4847b8495b17a4b86be1159aa13d140fe4fd17cb1d536953d5114c6 debian-bookworm-slim-arm64.tar.gz oci:library/debian@2d66c782e4847b8495b17a4b86be1159aa13d140fe4fd17cb1d536953d5114c6
 8568230ccd847dc93e95b9f6894379077d3e014a16b48040743573e77c23e85f opencode-linux-arm64.tar.gz https://github.com/anomalyco/opencode/releases/download/v1.19.4/opencode-linux-arm64.tar.gz
+cb28cf94541aeb62a4b2ea5997a99b5dd6bae595a772f36fbe279299f2032a4f opencode-v2-linux-arm64.tar.gz https://opencode.ai/files/bin/2.4.1/opencode-linux-arm64.tar.gz

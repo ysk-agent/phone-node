@@ -30,3 +30,4 @@ __pycache__/
 build.sh
 build-manual.sh
 scripts/stage-native.sh
+app/src/main/assets/opencode-v2.tgz

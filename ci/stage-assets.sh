@@ -47,6 +47,7 @@ chmod 755 "$APP/src/main/jniLibs/arm64-v8a/"*.so
 
 cp "$DL/debian-bookworm-slim-arm64.tar.gz" "$APP/src/main/assets/debian-rootfs.tgz"
 cp "$DL/opencode-linux-arm64.tar.gz" "$APP/src/main/assets/opencode.tgz"
+cp "$DL/opencode-v2-linux-arm64.tar.gz" "$APP/src/main/assets/opencode-v2.tgz"
 if [ -n "${AUTHORIZED_KEYS_FILE:-}" ]; then
   cp "$AUTHORIZED_KEYS_FILE" "$APP/src/main/assets/authorized_keys"
 else

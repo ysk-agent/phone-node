@@ -29,6 +29,9 @@ class NodeService : Service() {
     @Volatile
     private var heartbeatRunning = false
 
+    @Volatile
+    private var probeRunning = false
+
     override fun onCreate() {
         super.onCreate()
         CrashLog.install(this)
@@ -91,6 +94,43 @@ class NodeService : Service() {
                 }
             }
         }
+
+        // Health probe for the two guest opencode serves. The guest
+        // shares this device's network namespace (proot does not
+        // isolate it), so the serves are reachable on loopback from
+        // here. Any HTTP 200 on /global/health counts as running:
+        // v1's health payload is known, v2's shape is not verified
+        // on a device yet, so the probe deliberately does not parse
+        // the body.
+        probeRunning = true
+        thread(name = "opencode-health-probe", isDaemon = true) {
+            while (probeRunning) {
+                NodeState.opencodeV1Running = probeHealth(4096)
+                NodeState.opencodeV2Running = probeHealth(4098)
+                try {
+                    Thread.sleep(5_000)
+                } catch (e: InterruptedException) {
+                    break
+                }
+            }
+        }
+    }
+
+    private fun probeHealth(port: Int): Boolean {
+        return try {
+            val conn = java.net.URL("http://127.0.0.1:$port/global/health")
+                .openConnection() as java.net.HttpURLConnection
+            conn.connectTimeout = 2_000
+            conn.readTimeout = 2_000
+            conn.useCaches = false
+            try {
+                conn.responseCode == 200
+            } finally {
+                conn.disconnect()
+            }
+        } catch (e: Exception) {
+            false
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -103,6 +143,9 @@ class NodeService : Service() {
         // teardown below (proot tree kill) can take a moment.
         NodeState.serviceStartedAtMs = 0L
         heartbeatRunning = false
+        probeRunning = false
+        NodeState.opencodeV1Running = false
+        NodeState.opencodeV2Running = false
         statusServer?.stop()
         statusServer = null
         proxyServer?.stop()

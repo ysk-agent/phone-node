@@ -63,7 +63,9 @@ class StatusServer {
                 append("\"heartbeat\":").append(NodeState.heartbeat.get()).append(",")
                 append("\"uptimeMs\":").append(NodeState.uptimeMs(now)).append(",")
                 append("\"proxyListening\":").append(NodeState.proxyListening).append(",")
-                append("\"prootRunning\":").append(NodeState.prootRunning)
+                append("\"prootRunning\":").append(NodeState.prootRunning).append(",")
+                append("\"opencodeV1Running\":").append(NodeState.opencodeV1Running).append(",")
+                append("\"opencodeV2Running\":").append(NodeState.opencodeV2Running)
                 append("}")
             }
             val writer = PrintWriter(s.getOutputStream())

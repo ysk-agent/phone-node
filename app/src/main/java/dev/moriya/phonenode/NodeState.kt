@@ -22,6 +22,17 @@ object NodeState {
     @Volatile
     var prootRunning: Boolean = false
 
+    /** Host-side health-probe results for the two guest opencode
+     * serves (v1 on 4096, v2 on 4098), refreshed by NodeService's
+     * probe loop. "Running" means the serve answered HTTP 200 on
+     * /global/health; the per-version enabled state lives in the
+     * guest overlay flag files, not here. */
+    @Volatile
+    var opencodeV1Running: Boolean = false
+
+    @Volatile
+    var opencodeV2Running: Boolean = false
+
     /** Most recent caught subsystem failure, one line, for the UI. */
     @Volatile
     var lastError: String? = null
